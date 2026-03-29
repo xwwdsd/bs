@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  TradeOrderMapper XML配置文件
+  定义交易订单表(trade_order)的SQL映射
+  对应接口: com.cs2trade.mapper.TradeOrderMapper
+-->
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+
+<mapper namespace="com.cs2trade.mapper.TradeOrderMapper">
+
+    <!-- 结果映射 -->
+    <resultMap id="BaseResultMap" type="com.cs2trade.entity.TradeOrder">
+        <id column="id" property="id"/>
+        <result column="order_no" property="orderNo"/>
+        <result column="buyer_id" property="buyerId"/>
+        <result column="seller_id" property="sellerId"/>
+        <result column="item_id" property="itemId"/>
+        <result column="inventory_id" property="inventoryId"/>
+        <result column="price" property="price"/>
+        <result column="fee" property="fee"/>
+        <result column="actual_amount" property="actualAmount"/>
+        <result column="status" property="status"/>
+        <result column="trade_offer_id" property="tradeOfferId"/>
+        <result column="trade_offer_url" property="tradeOfferUrl"/>
+        <result column="created_at" property="createdAt"/>
+        <result column="updated_at" property="updatedAt"/>
+        <result column="paid_at" property="paidAt"/>
+        <result column="sent_at" property="sentAt"/>
+        <result column="completed_at" property="completedAt"/>
+        <result column="cancelled_at" property="cancelledAt"/>
+    </resultMap>
+
+    <!-- 基础列列表 -->
+    <sql id="Base_Column_List">
+        id, order_no, buyer_id, seller_id, item_id, inventory_id, price, fee, actual_amount,
+        status, trade_offer_id, trade_offer_url, created_at, updated_at, paid_at, sent_at, completed_at, cancelled_at
+    </sql>
+
+    <!-- 查询所有订单（MyBatis-Plus兼容） -->
+    <select id="selectList" resultMap="BaseResultMap">
+        SELECT
+        <include refid="Base_Column_List"/>
+        FROM trade_order
+        ORDER BY created_at DESC
+    </select>
+
+</mapper>

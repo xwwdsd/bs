@@ -1,0 +1,210 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  ItemMapper XML配置文件
+  定义饰品表(item)的SQL映射
+  对应接口: com.cs2trade.mapper.ItemMapper
+-->
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+
+<mapper namespace="com.cs2trade.mapper.ItemMapper">
+
+    <!-- 结果映射 -->
+    <resultMap id="BaseResultMap" type="com.cs2trade.entity.Item">
+        <id column="id" property="id"/>
+        <result column="item_id" property="itemId"/>
+        <result column="name" property="name"/>
+        <result column="name_cn" property="nameCn"/>
+        <result column="category" property="category"/>
+        <result column="sub_category" property="subCategory"/>
+        <result column="quality" property="quality"/>
+        <result column="rarity" property="rarity"/>
+        <result column="exterior" property="exterior"/>
+        <result column="icon_url" property="iconUrl"/>
+        <result column="inspect_link_template" property="inspectLinkTemplate"/>
+        <result column="steam_market_url" property="steamMarketUrl"/>
+        <result column="buff_price" property="buffPrice"/>
+        <result column="is_active" property="isActive"/>
+        <result column="created_at" property="createdAt"/>
+        <result column="updated_at" property="updatedAt"/>
+    </resultMap>
+
+    <!-- 基础列列表 -->
+    <sql id="Base_Column_List">
+        id, item_id, name, name_cn, category, sub_category, quality, rarity, exterior,
+        icon_url, inspect_link_template, steam_market_url, buff_price, is_active, created_at, updated_at
+    </sql>
+
+    <!-- 根据ID查询饰品 -->
+    <select id="selectById" resultMap="BaseResultMap">
+        SELECT
+        <include refid="Base_Column_List"/>
+        FROM item
+        WHERE id = #{id}
+    </select>
+
+    <!-- 根据游戏内物品ID查询饰品 -->
+    <select id="selectByItemId" resultMap="BaseResultMap">
+        SELECT
+        <include refid="Base_Column_List"/>
+        FROM item
+        WHERE item_id = #{itemId}
+    </select>
+
+    <!-- 查询所有启用的饰品 -->
+    <select id="selectAllActive" resultMap="BaseResultMap">
+        SELECT
+        <include refid="Base_Column_List"/>
+        FROM item
+        WHERE is_active = 1
+        ORDER BY created_at DESC
+    </select>
+
+    <!-- 分页查询饰品列表 -->
+    <select id="selectList" resultMap="BaseResultMap">
+        SELECT
+        <include refid="Base_Column_List"/>
+        FROM item
+        WHERE is_active = 1
+        <if test="category != null and category != ''">
+            AND category = #{category}
+        </if>
+        <if test="exterior != null and exterior != ''">
+            AND exterior = #{exterior}
+        </if>
+        <if test="quality != null and quality != ''">
+            AND quality = #{quality}
+        </if>
+        <if test="keyword != null and keyword != ''">
+            AND (name LIKE CONCAT('%', #{keyword}, '%') OR name_cn LIKE CONCAT('%', #{keyword}, '%'))
+        </if>
+        <choose>
+            <when test="sortField != null and sortField != ''">
+                ORDER BY ${sortField} ${sortOrder}
+            </when>
+            <otherwise>
+                ORDER BY created_at DESC
+            </otherwise>
+        </choose>
+        LIMIT #{limit} OFFSET #{offset}
+    </select>
+
+    <!-- 查询符合条件的饰品总数 -->
+    <select id="selectCount" resultType="int">
+        SELECT COUNT(*)
+        FROM item
+        WHERE is_active = 1
+        <if test="category != null and category != ''">
+            AND category = #{category}
+        </if>
+        <if test="exterior != null and exterior != ''">
+            AND exterior = #{exterior}
+        </if>
+        <if test="quality != null and quality != ''">
+            AND quality = #{quality}
+        </if>
+        <if test="keyword != null and keyword != ''">
+            AND (name LIKE CONCAT('%', #{keyword}, '%') OR name_cn LIKE CONCAT('%', #{keyword}, '%'))
+        </if>
+    </select>
+
+    <!-- 插入新饰品 -->
+    <insert id="insert" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO item (
+            item_id, name, name_cn, category, sub_category, quality, rarity, exterior,
+            icon_url, inspect_link_template, steam_market_url, buff_price, is_active, created_at, updated_at
+        ) VALUES (
+            #{itemId}, #{name}, #{nameCn}, #{category}, #{subCategory}, #{quality}, #{rarity}, #{exterior},
+            #{iconUrl}, #{inspectLinkTemplate}, #{steamMarketUrl}, #{buffPrice}, #{isActive}, NOW(), NOW()
+        )
+    </insert>
+
+    <!-- 根据ID更新饰品信息 -->
+    <update id="updateById">
+        UPDATE item
+        <set>
+            <if test="itemId != null">item_id = #{itemId},</if>
+            <if test="name != null">name = #{name},</if>
+            <if test="nameCn != null">name_cn = #{nameCn},</if>
+            <if test="category != null">category = #{category},</if>
+            <if test="subCategory != null">sub_category = #{subCategory},</if>
+            <if test="quality != null">quality = #{quality},</if>
+            <if test="rarity != null">rarity = #{rarity},</if>
+            <if test="exterior != null">exterior = #{exterior},</if>
+            <if test="iconUrl != null">icon_url = #{iconUrl},</if>
+            <if test="inspectLinkTemplate != null">inspect_link_template = #{inspectLinkTemplate},</if>
+            <if test="steamMarketUrl != null">steam_market_url = #{steamMarketUrl},</if>
+            <if test="buffPrice != null">buff_price = #{buffPrice},</if>
+            <if test="isActive != null">is_active = #{isActive},</if>
+            updated_at = NOW()
+        </set>
+        WHERE id = #{id}
+    </update>
+
+    <!-- 根据ID删除饰品 -->
+    <delete id="deleteById">
+        DELETE FROM item WHERE id = #{id}
+    </delete>
+
+    <!-- 根据分类查询饰品 -->
+    <select id="selectByCategory" resultMap="BaseResultMap">
+        SELECT
+        <include refid="Base_Column_List"/>
+        FROM item
+        WHERE category = #{category} AND is_active = 1
+        ORDER BY created_at DESC
+    </select>
+
+    <!-- 根据外观查询饰品 -->
+    <select id="selectByExterior" resultMap="BaseResultMap">
+        SELECT
+        <include refid="Base_Column_List"/>
+        FROM item
+        WHERE exterior = #{exterior} AND is_active = 1
+        ORDER BY created_at DESC
+    </select>
+
+    <!-- 根据品质查询饰品 -->
+    <select id="selectByQuality" resultMap="BaseResultMap">
+        SELECT
+        <include refid="Base_Column_List"/>
+        FROM item
+        WHERE quality = #{quality} AND is_active = 1
+        ORDER BY created_at DESC
+    </select>
+
+    <!-- 搜索饰品（按名称） -->
+    <select id="searchByName" resultMap="BaseResultMap">
+        SELECT
+        <include refid="Base_Column_List"/>
+        FROM item
+        WHERE is_active = 1
+        AND (name LIKE CONCAT('%', #{keyword}, '%') OR name_cn LIKE CONCAT('%', #{keyword}, '%'))
+        ORDER BY created_at DESC
+    </select>
+
+    <!-- 获取所有分类 -->
+    <select id="selectAllCategories" resultType="string">
+        SELECT DISTINCT category FROM item WHERE is_active = 1 ORDER BY category
+    </select>
+
+    <!-- 获取所有外观类型 -->
+    <select id="selectAllExteriors" resultType="string">
+        SELECT DISTINCT exterior FROM item WHERE is_active = 1 AND exterior IS NOT NULL ORDER BY exterior
+    </select>
+
+    <!-- 获取所有品质 -->
+    <select id="selectAllQualities" resultType="string">
+        SELECT DISTINCT quality FROM item WHERE is_active = 1 AND quality IS NOT NULL ORDER BY quality
+    </select>
+
+    <!-- 查询所有饰品（后台管理用） -->
+    <select id="selectAll" resultMap="BaseResultMap">
+        SELECT
+        <include refid="Base_Column_List"/>
+        FROM item
+        ORDER BY created_at DESC
+    </select>
+
+</mapper>

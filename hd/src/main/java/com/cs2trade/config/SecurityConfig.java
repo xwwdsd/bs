@@ -1,0 +1,103 @@
+package com.cs2trade.config;
+
+import com.cs2trade.security.JwtAuthenticationFilter;
+import lombok.RequiredArgsConstructor;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.http.HttpMethod;
+import org.springframework.security.authentication.AuthenticationManager;
+import org.springframework.security.config.annotation.authentication.configuration.AuthenticationConfiguration;
+import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
+import org.springframework.security.config.annotation.web.builders.HttpSecurity;
+import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
+import org.springframework.security.config.annotation.web.configurers.AbstractHttpConfigurer;
+import org.springframework.security.config.http.SessionCreationPolicy;
+import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
+import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.security.web.SecurityFilterChain;
+import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
+import org.springframework.web.cors.CorsConfiguration;
+import org.springframework.web.cors.CorsConfigurationSource;
+import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
+
+import java.util.Arrays;
+import java.util.List;
+
+@Configuration
+@EnableWebSecurity
+@EnableMethodSecurity
+@RequiredArgsConstructor
+public class SecurityConfig {
+
+    private final JwtAuthenticationFilter jwtAuthenticationFilter;
+
+    @Bean
+    public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
+        http
+                .csrf(AbstractHttpConfigurer::disable)
+                .cors(cors -> cors.configurationSource(corsConfigurationSource()))
+                .sessionManagement(session ->
+                        session.sessionCreationPolicy(SessionCreationPolicy.STATELESS)
+                )
+                .authorizeHttpRequests(auth -> auth
+                        .requestMatchers("/").permitAll()
+                        .requestMatchers("/v1/auth/**").permitAll()
+                        .requestMatchers("/v1/admin/reset-admin-password").permitAll()
+                        .requestMatchers("/public/**").permitAll()
+                        .requestMatchers("/uploads/**").permitAll()
+                        .requestMatchers("/v1/file/**").permitAll()
+                        .requestMatchers("/error").permitAll()
+                        .requestMatchers("/swagger-ui/**").permitAll()
+                        .requestMatchers("/v3/api-docs/**").permitAll()
+
+                        .requestMatchers(HttpMethod.POST, "/v1/items").hasRole("ADMIN")
+                        .requestMatchers(HttpMethod.PUT, "/v1/items/**").hasRole("ADMIN")
+                        .requestMatchers(HttpMethod.DELETE, "/v1/items/**").hasRole("ADMIN")
+                        .requestMatchers("/v1/items/sync-steam/**").hasRole("ADMIN")
+                        .requestMatchers("/v1/steam/admin/**").hasRole("ADMIN")
+
+                        .requestMatchers("/v1/news/my").authenticated()
+                        .requestMatchers(HttpMethod.GET, "/v1/news/**").permitAll()
+                        .requestMatchers(HttpMethod.GET, "/v1/items/**").permitAll()
+                        .requestMatchers(HttpMethod.GET, "/v1/player-shows/**").permitAll()
+                        .requestMatchers(HttpMethod.GET, "/v1/banners/**").permitAll()
+
+                        .requestMatchers("/v1/user/**").authenticated()
+                        .requestMatchers("/v1/admin/**").hasRole("ADMIN")
+                        .anyRequest().authenticated()
+                )
+                .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class);
+
+        return http.build();
+    }
+
+    @Bean
+    public PasswordEncoder passwordEncoder() {
+        return new BCryptPasswordEncoder();
+    }
+
+    @Bean
+    public AuthenticationManager authenticationManager(AuthenticationConfiguration config) throws Exception {
+        return config.getAuthenticationManager();
+    }
+
+    @Bean
+    public CorsConfigurationSource corsConfigurationSource() {
+        CorsConfiguration configuration = new CorsConfiguration();
+        configuration.setAllowedOrigins(List.of("*"));
+        configuration.setAllowedMethods(Arrays.asList("GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"));
+        configuration.setAllowedHeaders(Arrays.asList(
+                "Authorization",
+                "Content-Type",
+                "X-Requested-With",
+                "Accept",
+                "Origin"
+        ));
+        configuration.setAllowCredentials(false);
+        configuration.setMaxAge(3600L);
+
+        UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
+        source.registerCorsConfiguration("/**", configuration);
+        return source;
+    }
+}

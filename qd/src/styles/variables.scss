@@ -1,0 +1,40 @@
+/**
+ * SCSS变量定义文件
+ * 定义全局颜色、尺寸等变量
+ */
+
+// 主题色
+$primary-color: #ff6b35;
+$primary-light: #f7931e;
+$primary-dark: #e55a2b;
+
+// 辅助色
+$success-color: #67c23a;
+$warning-color: #e6a23c;
+$danger-color: #f56c6c;
+$info-color: #909399;
+
+// 文字色
+$text-primary: #1a1a2e;
+$text-regular: #606266;
+$text-secondary: #909399;
+$text-placeholder: #c0c4cc;
+
+// 背景色
+$bg-primary: #ffffff;
+$bg-secondary: #f5f7fa;
+$bg-dark: #1a1a2e;
+
+// 边框色
+$border-color: #dcdfe6;
+$border-light: #e4e7ed;
+
+// 圆角
+$border-radius-small: 4px;
+$border-radius-base: 8px;
+$border-radius-large: 16px;
+
+// 阴影
+$shadow-base: 0 2px 12px 0 rgba(0, 0, 0, 0.1);
+$shadow-light: 0 2px 4px rgba(0, 0, 0, 0.05);
+$shadow-dark: 0 8px 24px rgba(0, 0, 0, 0.15);

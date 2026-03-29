@@ -1,0 +1,63 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.cs2trade.mapper.BannerMapper">
+
+    <resultMap id="BaseResultMap" type="com.cs2trade.entity.Banner">
+        <id column="id" property="id" />
+        <result column="title" property="title" />
+        <result column="description" property="description" />
+        <result column="image_url" property="imageUrl" />
+        <result column="link_url" property="linkUrl" />
+        <result column="status" property="status" />
+        <result column="sort_order" property="sortOrder" />
+        <result column="created_at" property="createdAt" />
+        <result column="updated_at" property="updatedAt" />
+    </resultMap>
+
+    <sql id="Base_Column_List">
+        id, title, description, image_url, link_url, status, sort_order, created_at, updated_at
+    </sql>
+
+    <select id="selectAll" resultMap="BaseResultMap">
+        SELECT <include refid="Base_Column_List" />
+        FROM sys_banner
+        ORDER BY sort_order DESC, created_at DESC
+    </select>
+
+    <select id="selectActive" resultMap="BaseResultMap">
+        SELECT <include refid="Base_Column_List" />
+        FROM sys_banner
+        WHERE status = 1
+        ORDER BY sort_order DESC, created_at DESC
+    </select>
+
+    <select id="selectById" resultMap="BaseResultMap">
+        SELECT <include refid="Base_Column_List" />
+        FROM sys_banner
+        WHERE id = #{id}
+    </select>
+
+    <insert id="insert" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO sys_banner (title, description, image_url, link_url, status, sort_order, created_at, updated_at)
+        VALUES (#{title}, #{description}, #{imageUrl}, #{linkUrl}, #{status}, #{sortOrder}, NOW(), NOW())
+    </insert>
+
+    <update id="update">
+        UPDATE sys_banner
+        <set>
+            <if test="title != null">title = #{title},</if>
+            <if test="description != null">description = #{description},</if>
+            <if test="imageUrl != null">image_url = #{imageUrl},</if>
+            <if test="linkUrl != null">link_url = #{linkUrl},</if>
+            <if test="status != null">status = #{status},</if>
+            <if test="sortOrder != null">sort_order = #{sortOrder},</if>
+            updated_at = NOW()
+        </set>
+        WHERE id = #{id}
+    </update>
+
+    <delete id="deleteById">
+        DELETE FROM sys_banner WHERE id = #{id}
+    </delete>
+
+</mapper>

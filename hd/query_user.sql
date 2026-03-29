@@ -1,0 +1,1 @@
+SELECT id, username, email FROM cs2trade.sys_user LIMIT 5;

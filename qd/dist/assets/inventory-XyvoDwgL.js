@@ -1,0 +1,1 @@
+import{r as t}from"./index-BSapntNO.js";const n=()=>t.get("/v1/inventory",{timeout:45e3}),r=()=>t.post("/v1/inventory/sync",{},{timeout:45e3}),o=()=>t.get("/v1/inventory",{timeout:45e3});export{n as a,o as g,r as s};

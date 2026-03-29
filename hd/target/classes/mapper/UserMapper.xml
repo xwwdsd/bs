@@ -1,0 +1,361 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  UserMapper XML配置文件
+  定义用户表(sys_user)的SQL映射
+  对应接口: com.cs2trade.mapper.UserMapper
+-->
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+
+<!-- 命名空间指向对应的Mapper接口 -->
+<mapper namespace="com.cs2trade.mapper.UserMapper">
+
+    <!-- ==================== 结果映射 ==================== -->
+    
+    <!--
+      用户实体结果映射
+      将数据库字段映射到User实体类属性
+    -->
+    <resultMap id="BaseResultMap" type="com.cs2trade.entity.User">
+        <!-- 主键映射 -->
+        <id column="id" property="id"/>
+        <!-- 普通字段映射 -->
+        <result column="username" property="username"/>
+        <result column="email" property="email"/>
+        <result column="phone" property="phone"/>
+        <result column="password" property="password"/>
+        <result column="avatar" property="avatar"/>
+        <result column="steam_id" property="steamId"/>
+        <result column="steam_trade_url" property="steamTradeUrl"/>
+        <result column="steam_api_key" property="steamApiKey"/>
+        <result column="status" property="status"/>
+        <result column="user_level" property="userLevel"/>
+        <result column="is_real_name" property="isRealName"/>
+        <result column="alipay_account" property="alipayAccount"/>
+        <result column="alipay_real_name" property="alipayRealName"/>
+        <result column="bank_card_number" property="bankCardNumber"/>
+        <result column="bank_real_name" property="bankRealName"/>
+        <result column="bank_name" property="bankName"/>
+        <result column="bank_phone" property="bankPhone"/>
+        <result column="last_login_time" property="lastLoginTime"/>
+        <result column="last_login_ip" property="lastLoginIp"/>
+        <result column="created_at" property="createdAt"/>
+        <result column="updated_at" property="updatedAt"/>
+    </resultMap>
+
+    <!-- 基础列列表，用于复用 -->
+    <sql id="Base_Column_List">
+        id, username, email, phone, password, avatar, steam_id, steam_trade_url, 
+        steam_api_key, status, user_level, is_real_name, 
+        alipay_account, alipay_real_name, bank_card_number, bank_real_name, bank_name, bank_phone,
+        last_login_time, last_login_ip, created_at, updated_at
+    </sql>
+
+    <!-- ==================== 查询操作 ==================== -->
+
+    <!--
+      根据ID查询用户
+      用于获取用户详细信息
+    -->
+    <select id="selectById" resultMap="BaseResultMap">
+        SELECT
+        <include refid="Base_Column_List"/>
+        FROM sys_user
+        WHERE id = #{id}
+    </select>
+
+    <!--
+      根据邮箱查询用户
+      用于登录验证
+    -->
+    <select id="selectByEmail" resultMap="BaseResultMap">
+        SELECT
+        <include refid="Base_Column_List"/>
+        FROM sys_user
+        WHERE email = #{email}
+    </select>
+
+    <!--
+      根据用户名查询用户
+      用于检查用户名是否存在
+    -->
+    <select id="selectByUsername" resultMap="BaseResultMap">
+        SELECT
+        <include refid="Base_Column_List"/>
+        FROM sys_user
+        WHERE username = #{username}
+    </select>
+
+    <!--
+      根据Steam ID查询用户
+      用于Steam绑定验证
+    -->
+    <select id="selectBySteamId" resultMap="BaseResultMap">
+        SELECT
+        <include refid="Base_Column_List"/>
+        FROM sys_user
+        WHERE steam_id = #{steamId}
+    </select>
+
+    <!--
+      查询所有用户
+      用于后台管理
+    -->
+    <select id="selectAll" resultMap="BaseResultMap">
+        SELECT
+        <include refid="Base_Column_List"/>
+        FROM sys_user
+        ORDER BY created_at DESC
+    </select>
+
+    <!--
+      根据状态查询用户列表
+      用于后台筛选
+    -->
+    <select id="selectByStatus" resultMap="BaseResultMap">
+        SELECT
+        <include refid="Base_Column_List"/>
+        FROM sys_user
+        WHERE status = #{status}
+        ORDER BY created_at DESC
+    </select>
+
+    <!--
+      检查邮箱是否已存在
+      用于注册验证
+    -->
+    <select id="countByEmail" resultType="int">
+        SELECT COUNT(*)
+        FROM sys_user
+        WHERE email = #{email}
+    </select>
+
+    <!--
+      检查用户名是否已存在
+      用于注册验证
+    -->
+    <select id="countByUsername" resultType="int">
+        SELECT COUNT(*)
+        FROM sys_user
+        WHERE username = #{username}
+    </select>
+
+    <!--
+      根据手机号查询用户
+    -->
+    <select id="selectByPhone" resultMap="BaseResultMap">
+        SELECT
+        <include refid="Base_Column_List"/>
+        FROM sys_user
+        WHERE phone = #{phone}
+    </select>
+
+    <!--
+      检查手机号是否已存在
+    -->
+    <select id="countByPhone" resultType="int">
+        SELECT COUNT(*)
+        FROM sys_user
+        WHERE phone = #{phone}
+    </select>
+
+    <!--
+      更新用户手机号
+    -->
+    <update id="updatePhone">
+        UPDATE sys_user
+        SET phone = #{phone}, updated_at = NOW()
+        WHERE id = #{id}
+    </update>
+
+    <!--
+      查询所有用户（MyBatis-Plus兼容）
+      用于后台管理
+    -->
+    <select id="selectList" resultMap="BaseResultMap">
+        SELECT
+        <include refid="Base_Column_List"/>
+        FROM sys_user
+        ORDER BY created_at DESC
+    </select>
+
+    <!-- 分页查询用户 -->
+    <select id="selectByPage" resultMap="BaseResultMap">
+        SELECT
+        <include refid="Base_Column_List"/>
+        FROM sys_user
+        <where>
+            <if test="keyword != null and keyword != ''">
+                AND (username LIKE CONCAT('%', #{keyword}, '%') OR email LIKE CONCAT('%', #{keyword}, '%'))
+            </if>
+            <if test="role != null and role != ''">
+                AND role = #{role}
+            </if>
+        </where>
+        ORDER BY created_at DESC
+        LIMIT #{offset}, #{limit}
+    </select>
+
+    <!-- 统计用户数量 -->
+    <select id="countByCondition" resultType="long">
+        SELECT COUNT(*) FROM sys_user
+        <where>
+            <if test="keyword != null and keyword != ''">
+                AND (username LIKE CONCAT('%', #{keyword}, '%') OR email LIKE CONCAT('%', #{keyword}, '%'))
+            </if>
+            <if test="role != null and role != ''">
+                AND role = #{role}
+            </if>
+        </where>
+    </select>
+
+    <!-- ==================== 插入操作 ==================== -->
+
+    <!--
+      插入新用户
+      用于用户注册
+      useGeneratedKeys: 使用数据库自动生成的主键
+      keyProperty: 将生成的主键赋值给实体类的id属性
+    -->
+    <insert id="insert" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO sys_user (
+            username,
+            email,
+            password,
+            avatar,
+            steam_id,
+            steam_trade_url,
+            steam_api_key,
+            status,
+            user_level,
+            is_real_name,
+            last_login_time,
+            last_login_ip,
+            created_at,
+            updated_at
+        ) VALUES (
+            #{username},
+            #{email},
+            #{password},
+            #{avatar},
+            #{steamId},
+            #{steamTradeUrl},
+            #{steamApiKey},
+            #{status},
+            #{userLevel},
+            #{isRealName},
+            #{lastLoginTime},
+            #{lastLoginIp},
+            #{createdAt},
+            #{updatedAt}
+        )
+    </insert>
+
+    <!-- ==================== 更新操作 ==================== -->
+
+    <!--
+      根据ID更新用户信息
+      动态更新非空字段
+    -->
+    <update id="updateById">
+        UPDATE sys_user
+        <set>
+            <if test="username != null">
+                username = #{username},
+            </if>
+            <if test="email != null">
+                email = #{email},
+            </if>
+            <if test="phone != null">
+                phone = #{phone},
+            </if>
+            <if test="password != null">
+                password = #{password},
+            </if>
+            <if test="avatar != null">
+                avatar = #{avatar},
+            </if>
+            <if test="steamId != null">
+                steam_id = #{steamId},
+            </if>
+            <if test="steamTradeUrl != null">
+                steam_trade_url = #{steamTradeUrl},
+            </if>
+            <if test="steamApiKey != null">
+                steam_api_key = #{steamApiKey},
+            </if>
+            <if test="status != null">
+                status = #{status},
+            </if>
+            <if test="userLevel != null">
+                user_level = #{userLevel},
+            </if>
+            <if test="isRealName != null">
+                is_real_name = #{isRealName},
+            </if>
+            <if test="alipayAccount != null">
+                alipay_account = #{alipayAccount},
+            </if>
+            <if test="alipayRealName != null">
+                alipay_real_name = #{alipayRealName},
+            </if>
+            <if test="bankCardNumber != null">
+                bank_card_number = #{bankCardNumber},
+            </if>
+            <if test="bankRealName != null">
+                bank_real_name = #{bankRealName},
+            </if>
+            <if test="bankName != null">
+                bank_name = #{bankName},
+            </if>
+            <if test="bankPhone != null">
+                bank_phone = #{bankPhone},
+            </if>
+            <if test="lastLoginTime != null">
+                last_login_time = #{lastLoginTime},
+            </if>
+            <if test="lastLoginIp != null">
+                last_login_ip = #{lastLoginIp},
+            </if>
+            updated_at = NOW()
+        </set>
+        WHERE id = #{id}
+    </update>
+
+    <!--
+      更新用户最后登录信息
+      用户登录成功后调用
+    -->
+    <update id="updateLoginInfo">
+        UPDATE sys_user
+        SET last_login_time = #{loginTime},
+            last_login_ip = #{loginIp},
+            updated_at = NOW()
+        WHERE id = #{id}
+    </update>
+
+    <!--
+      更新用户Steam绑定信息
+    -->
+    <update id="updateSteamInfo">
+        UPDATE sys_user
+        SET steam_id = #{steamId},
+            steam_trade_url = #{steamTradeUrl},
+            steam_api_key = #{steamApiKey},
+            updated_at = NOW()
+        WHERE id = #{id}
+    </update>
+
+    <!-- ==================== 删除操作 ==================== -->
+
+    <!--
+      根据ID删除用户
+      实际项目中建议使用逻辑删除
+    -->
+    <delete id="deleteById">
+        DELETE FROM sys_user
+        WHERE id = #{id}
+    </delete>
+
+</mapper>

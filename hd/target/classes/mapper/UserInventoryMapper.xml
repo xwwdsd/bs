@@ -1,0 +1,183 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  UserInventoryMapper XML配置文件
+  定义用户库存表(user_inventory)的SQL映射
+  对应接口: com.cs2trade.mapper.UserInventoryMapper
+-->
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+
+<mapper namespace="com.cs2trade.mapper.UserInventoryMapper">
+
+    <!-- 结果映射 -->
+    <resultMap id="BaseResultMap" type="com.cs2trade.entity.UserInventory">
+        <id column="id" property="id"/>
+        <result column="user_id" property="userId"/>
+        <result column="item_id" property="itemId"/>
+        <result column="asset_id" property="assetId"/>
+        <result column="class_id" property="classId"/>
+        <result column="instance_id" property="instanceId"/>
+        <result column="name" property="name"/>
+        <result column="icon_url" property="iconUrl"/>
+        <result column="exterior" property="exterior"/>
+        <result column="paint_seed" property="paintSeed"/>
+        <result column="paint_wear" property="paintWear"/>
+        <result column="is_marketable" property="isMarketable"/>
+        <result column="status" property="status"/>
+        <result column="market_price" property="marketPrice"/>
+        <result column="acquired_at" property="acquiredAt"/>
+        <result column="created_at" property="createdAt"/>
+        <result column="updated_at" property="updatedAt"/>
+        <!-- 关联饰品信息 -->
+        <association property="item" javaType="com.cs2trade.entity.Item">
+            <id column="item_id" property="id"/>
+            <result column="item_name" property="name"/>
+            <result column="item_name_cn" property="nameCn"/>
+            <result column="item_category" property="category"/>
+            <result column="item_quality" property="quality"/>
+            <result column="item_exterior" property="exterior"/>
+            <result column="item_icon_url" property="iconUrl"/>
+            <result column="item_buff_price" property="buffPrice"/>
+        </association>
+    </resultMap>
+
+    <!-- 基础列列表 -->
+    <sql id="Base_Column_List">
+        ui.id, ui.user_id, ui.item_id, ui.asset_id, ui.class_id, ui.instance_id,
+        ui.name, ui.icon_url, ui.exterior, ui.paint_seed, ui.paint_wear,
+        ui.is_marketable, ui.status, ui.market_price, ui.acquired_at, ui.created_at, ui.updated_at
+    </sql>
+
+    <!-- 关联饰品列列表 -->
+    <sql id="Item_Column_List">
+        i.id as item_id, i.name as item_name, i.name_cn as item_name_cn,
+        i.category as item_category, i.quality as item_quality, i.exterior as item_exterior,
+        i.icon_url as item_icon_url, i.buff_price as item_buff_price
+    </sql>
+
+    <!-- 根据ID查询库存物品 -->
+    <select id="selectById" resultMap="BaseResultMap">
+        SELECT
+        <include refid="Base_Column_List"/>,
+        <include refid="Item_Column_List"/>
+        FROM user_inventory ui
+        LEFT JOIN item i ON ui.item_id = i.id
+        WHERE ui.id = #{id}
+    </select>
+
+    <!-- 根据用户ID查询库存列表 -->
+    <select id="selectByUserId" resultMap="BaseResultMap">
+        SELECT
+        <include refid="Base_Column_List"/>,
+        <include refid="Item_Column_List"/>
+        FROM user_inventory ui
+        LEFT JOIN item i ON ui.item_id = i.id
+        WHERE ui.user_id = #{userId}
+        ORDER BY ui.created_at DESC
+    </select>
+
+    <!-- 根据用户ID查询可交易的库存 -->
+    <select id="selectMarketableByUserId" resultMap="BaseResultMap">
+        SELECT
+        <include refid="Base_Column_List"/>,
+        <include refid="Item_Column_List"/>
+        FROM user_inventory ui
+        LEFT JOIN item i ON ui.item_id = i.id
+        WHERE ui.user_id = #{userId} AND ui.is_marketable = 1
+        ORDER BY ui.created_at DESC
+    </select>
+
+    <!-- 根据用户ID和Asset ID查询库存 -->
+    <select id="selectByUserIdAndAssetId" resultMap="BaseResultMap">
+        SELECT
+        <include refid="Base_Column_List"/>,
+        <include refid="Item_Column_List"/>
+        FROM user_inventory ui
+        LEFT JOIN item i ON ui.item_id = i.id
+        WHERE ui.user_id = #{userId} AND ui.asset_id = #{assetId}
+    </select>
+
+    <!-- 插入新库存物品 -->
+    <insert id="insert" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO user_inventory (
+            user_id, item_id, asset_id, class_id, instance_id, name, icon_url,
+            exterior, paint_seed, paint_wear, is_marketable, status, market_price, acquired_at, created_at, updated_at
+        ) VALUES (
+            #{userId}, #{itemId}, #{assetId}, #{classId}, #{instanceId}, #{name}, #{iconUrl},
+            #{exterior}, #{paintSeed}, #{paintWear}, #{isMarketable}, #{status}, #{marketPrice}, #{acquiredAt}, NOW(), NOW()
+        )
+    </insert>
+
+    <!-- 根据ID更新库存物品 -->
+    <update id="updateById">
+        UPDATE user_inventory
+        <set>
+            <if test="itemId != null">item_id = #{itemId},</if>
+            <if test="assetId != null">asset_id = #{assetId},</if>
+            <if test="classId != null">class_id = #{classId},</if>
+            <if test="instanceId != null">instance_id = #{instanceId},</if>
+            <if test="name != null">name = #{name},</if>
+            <if test="iconUrl != null">icon_url = #{iconUrl},</if>
+            <if test="exterior != null">exterior = #{exterior},</if>
+            <if test="paintSeed != null">paint_seed = #{paintSeed},</if>
+            <if test="paintWear != null">paint_wear = #{paintWear},</if>
+            <if test="isMarketable != null">is_marketable = #{isMarketable},</if>
+            <if test="status != null">status = #{status},</if>
+            <if test="marketPrice != null">market_price = #{marketPrice},</if>
+            <if test="acquiredAt != null">acquired_at = #{acquiredAt},</if>
+            updated_at = NOW()
+        </set>
+        WHERE id = #{id}
+    </update>
+
+    <!-- 根据ID删除库存物品 -->
+    <delete id="deleteById">
+        DELETE FROM user_inventory WHERE id = #{id}
+    </delete>
+
+    <!-- 根据用户ID删除所有库存 -->
+    <delete id="deleteByUserId">
+        DELETE FROM user_inventory WHERE user_id = #{userId}
+    </delete>
+
+    <delete id="deleteUnreferencedByUserId">
+        DELETE FROM user_inventory
+        WHERE user_id = #{userId}
+          AND id NOT IN (
+              SELECT inventory_id
+              FROM sell_order
+              WHERE inventory_id IS NOT NULL
+          )
+    </delete>
+
+    <!-- 根据用户ID统计库存数量 -->
+    <select id="countByUserId" resultType="int">
+        SELECT COUNT(*) FROM user_inventory WHERE user_id = #{userId}
+    </select>
+
+    <!-- 更新库存状态 -->
+    <update id="updateStatus">
+        UPDATE user_inventory SET status = #{status}, updated_at = NOW() WHERE id = #{id}
+    </update>
+
+    <!-- 删除指定状态的库存 -->
+    <delete id="deleteByStatus">
+        DELETE FROM user_inventory WHERE status = #{status}
+    </delete>
+
+    <!-- 删除指定用户的所有已售出库存 -->
+    <delete id="deleteSoldByUserId">
+        DELETE FROM user_inventory WHERE user_id = #{userId} AND status = 1
+    </delete>
+
+    <!-- 查询所有 item_id 为 NULL 的库存记录 -->
+    <select id="selectWithNullItemId" resultMap="BaseResultMap">
+        SELECT
+        <include refid="Base_Column_List"/>
+        FROM user_inventory ui
+        WHERE ui.item_id IS NULL
+        ORDER BY ui.created_at DESC
+    </select>
+
+</mapper>
