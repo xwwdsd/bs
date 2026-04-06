@@ -2,6 +2,7 @@ package com.cs2trade.service.impl;
 
 import com.alibaba.fastjson2.JSONArray;
 import com.alibaba.fastjson2.JSONObject;
+import com.cs2trade.config.SteamMarketSyncProperties;
 import com.cs2trade.dto.PageResult;
 import com.cs2trade.entity.Item;
 import com.cs2trade.entity.SteamSyncTask;
@@ -9,12 +10,14 @@ import com.cs2trade.mapper.ItemMapper;
 import com.cs2trade.mapper.SteamSyncTaskMapper;
 import com.cs2trade.service.ItemService;
 import com.cs2trade.util.SteamApiClient;
+import com.cs2trade.util.SteamMarketPageResult;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
 import java.time.temporal.ChronoUnit;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
@@ -31,16 +34,18 @@ public class ItemServiceImpl implements ItemService {
 
     private static final String TASK_TYPE_STEAM_ITEM_SYNC = "STEAM_ITEM_SYNC";
     private static final String STATUS_RUNNING = "RUNNING";
+    private static final String STATUS_COOLDOWN = "COOLDOWN";
     private static final String STATUS_COMPLETED = "COMPLETED";
     private static final String STATUS_PARTIAL = "PARTIAL";
     private static final String STATUS_FAILED = "FAILED";
 
-    private static final int STEAM_PAGE_SIZE = 10;
-    private static final int MAX_PAGES_TO_SYNC = 200;
+    private static final int LEGACY_STEAM_PAGE_SIZE = 10;
+    private static final DateTimeFormatter COOLDOWN_TIME_FORMATTER = DateTimeFormatter.ofPattern("HH:mm:ss");
 
     private final ItemMapper itemMapper;
     private final SteamApiClient steamApiClient;
     private final SteamSyncTaskMapper steamSyncTaskMapper;
+    private final SteamMarketSyncProperties syncProperties;
 
     private final AtomicBoolean steamSyncRunning = new AtomicBoolean(false);
 
@@ -135,8 +140,8 @@ public class ItemServiceImpl implements ItemService {
         }
 
         SteamSyncTask task = prepareTaskForRun();
-        log.info("Start Steam item sync task: taskId={}, syncedPages={}, plannedPages={}",
-                task.getId(), task.getSyncedPages(), task.getPlannedPages());
+        log.info("Start Steam item sync task: taskId={}, syncedPages={}, plannedPages={}, pageSize={}",
+                task.getId(), task.getSyncedPages(), task.getPlannedPages(), task.getPageSize());
 
         try {
             return CompletableFuture.completedFuture(runSteamSync(task));
@@ -163,25 +168,27 @@ public class ItemServiceImpl implements ItemService {
     public Map<String, Object> getSteamSyncStatus() {
         SteamSyncTask latestTask = steamSyncTaskMapper.selectLatestByTaskType(TASK_TYPE_STEAM_ITEM_SYNC);
         Map<String, Object> result = createDefaultStatus();
-        result.put("running", steamSyncRunning.get());
         if (latestTask == null) {
+            result.put("running", steamSyncRunning.get());
             return result;
         }
 
         int totalPages = defaultInt(latestTask.getTotalPages());
         int plannedPages = defaultInt(latestTask.getPlannedPages());
         int syncedPages = defaultInt(latestTask.getSyncedPages());
+        boolean runningLike = STATUS_RUNNING.equalsIgnoreCase(latestTask.getStatus())
+                || STATUS_COOLDOWN.equalsIgnoreCase(latestTask.getStatus());
         int nextStartPage = totalPages > syncedPages ? syncedPages + 1 : 0;
         int nextEndPage = nextStartPage > 0
-                ? Math.min(totalPages, syncedPages + MAX_PAGES_TO_SYNC)
+                ? Math.min(totalPages, syncedPages + syncProperties.getMaxPagesPerRun())
                 : 0;
-        boolean canContinue = !STATUS_RUNNING.equalsIgnoreCase(latestTask.getStatus())
-                && totalPages > syncedPages;
+        boolean canContinue = !runningLike && totalPages > syncedPages;
+        boolean resumableFailed = STATUS_FAILED.equalsIgnoreCase(latestTask.getStatus()) && canContinue;
 
         result.put("taskId", latestTask.getId());
-        result.put("running", steamSyncRunning.get() && STATUS_RUNNING.equalsIgnoreCase(latestTask.getStatus()));
-        result.put("phase", mapStatusToPhase(latestTask.getStatus()));
-        result.put("message", buildStatusMessage(latestTask));
+        result.put("running", steamSyncRunning.get() && runningLike);
+        result.put("phase", resumableFailed ? "partial" : mapStatusToPhase(latestTask.getStatus()));
+        result.put("message", buildStatusMessage(latestTask, canContinue, nextStartPage, nextEndPage));
         result.put("startedAt", toIsoString(latestTask.getStartedAt()));
         result.put("finishedAt", toIsoString(latestTask.getFinishedAt()));
         result.put("totalCount", defaultInt(latestTask.getTotalCount()));
@@ -196,19 +203,19 @@ public class ItemServiceImpl implements ItemService {
         result.put("remainingPages", defaultInt(latestTask.getRemainingPages()));
         result.put("remainingItems", defaultInt(latestTask.getRemainingItems()));
         result.put("maxPagesLimit", defaultInt(latestTask.getMaxPagesLimit()));
+        result.put("pageSize", positiveOrDefault(latestTask.getPageSize(), syncProperties.getPageSize()));
+        result.put("retryCount", defaultInt(latestTask.getRetryCount()));
+        result.put("lastHttpStatus", latestTask.getLastHttpStatus());
+        result.put("cooldownUntil", toIsoString(latestTask.getCooldownUntil()));
+        result.put("autoRetrying", STATUS_COOLDOWN.equalsIgnoreCase(latestTask.getStatus()));
         result.put("failedPage", latestTask.getFailedPage());
-        result.put("error", latestTask.getErrorMessage());
+        result.put("error", resumableFailed ? null : latestTask.getErrorMessage());
         result.put("lastDurationSeconds", calculateDurationSeconds(latestTask));
         result.put("capped", totalPages > plannedPages);
         result.put("canContinue", canContinue);
         result.put("nextStartPage", nextStartPage);
         result.put("nextEndPage", nextEndPage);
-
-        if (totalPages > syncedPages) {
-            result.put("remainingPageRange", nextStartPage + "-" + totalPages);
-        } else {
-            result.put("remainingPageRange", "");
-        }
+        result.put("remainingPageRange", totalPages > syncedPages ? nextStartPage + "-" + totalPages : "");
 
         return result;
     }
@@ -231,25 +238,62 @@ public class ItemServiceImpl implements ItemService {
         boolean hasRemainingPages = totalPages > syncedPages;
         String status = firstNonBlank(task.getStatus()).toUpperCase();
 
-        return hasRemainingPages && (STATUS_PARTIAL.equals(status) || STATUS_FAILED.equals(status));
+        return hasRemainingPages && (STATUS_PARTIAL.equals(status)
+                || STATUS_FAILED.equals(status)
+                || STATUS_COOLDOWN.equals(status));
     }
 
     private SteamSyncTask resumeTask(SteamSyncTask task) {
+        migrateTaskPageSizeIfNeeded(task);
         int totalPages = defaultInt(task.getTotalPages());
         int syncedPages = defaultInt(task.getSyncedPages());
-        int plannedPages = Math.min(totalPages, syncedPages + MAX_PAGES_TO_SYNC);
+        int plannedPages = Math.min(totalPages, syncedPages + syncProperties.getMaxPagesPerRun());
 
         task.setStatus(STATUS_RUNNING);
         task.setPlannedPages(plannedPages);
         task.setCurrentPage(Math.max(syncedPages, 0));
         task.setRemainingPages(Math.max(totalPages - syncedPages, 0));
         task.setRemainingItems(Math.max(defaultInt(task.getTotalCount()) - defaultInt(task.getProcessedCount()), 0));
+        task.setMaxPagesLimit(syncProperties.getMaxPagesPerRun());
         task.setFailedPage(null);
         task.setErrorMessage(null);
+        task.setCooldownUntil(null);
+        task.setRetryCount(0);
+        task.setLastHttpStatus(null);
         task.setStartedAt(LocalDateTime.now());
         task.setFinishedAt(null);
         persistTask(task);
         return task;
+    }
+
+    private void migrateTaskPageSizeIfNeeded(SteamSyncTask task) {
+        int taskPageSize = positiveOrDefault(task.getPageSize(), LEGACY_STEAM_PAGE_SIZE);
+        int configuredPageSize = syncProperties.getPageSize();
+        task.setMaxPagesLimit(syncProperties.getMaxPagesPerRun());
+
+        if (taskPageSize == configuredPageSize) {
+            task.setPageSize(configuredPageSize);
+            return;
+        }
+
+        int totalCount = defaultInt(task.getTotalCount());
+        int syncedPages = defaultInt(task.getSyncedPages());
+        int processedCount = Math.max(defaultInt(task.getProcessedCount()), syncedPages * taskPageSize);
+        int translatedSyncedPages = processedCount / configuredPageSize;
+        int translatedTotalPages = totalCount <= 0 ? 0 : (totalCount + configuredPageSize - 1) / configuredPageSize;
+        int translatedCurrentPage = Math.min(defaultInt(task.getCurrentPage()), translatedSyncedPages);
+        int plannedPages = translatedTotalPages == 0
+                ? 0
+                : Math.min(translatedTotalPages, translatedSyncedPages + syncProperties.getMaxPagesPerRun());
+
+        task.setPageSize(configuredPageSize);
+        task.setSyncedPages(translatedSyncedPages);
+        task.setCurrentPage(Math.max(translatedCurrentPage, translatedSyncedPages));
+        task.setProcessedCount(processedCount);
+        task.setTotalPages(translatedTotalPages);
+        task.setPlannedPages(plannedPages);
+        task.setRemainingPages(Math.max(translatedTotalPages - translatedSyncedPages, 0));
+        task.setRemainingItems(Math.max(totalCount - processedCount, 0));
     }
 
     private SteamSyncTask createTask() {
@@ -267,7 +311,11 @@ public class ItemServiceImpl implements ItemService {
         task.setSkippedCount(0);
         task.setRemainingPages(0);
         task.setRemainingItems(0);
-        task.setMaxPagesLimit(MAX_PAGES_TO_SYNC);
+        task.setMaxPagesLimit(syncProperties.getMaxPagesPerRun());
+        task.setPageSize(syncProperties.getPageSize());
+        task.setRetryCount(0);
+        task.setLastHttpStatus(null);
+        task.setCooldownUntil(null);
         task.setStartedAt(LocalDateTime.now());
         steamSyncTaskMapper.insert(task);
         return task;
@@ -277,21 +325,48 @@ public class ItemServiceImpl implements ItemService {
         try {
             Map<String, Item> existingItemMap = buildExistingItemMap();
 
-            JSONObject firstPageData = steamApiClient.getCsgoItems(0, STEAM_PAGE_SIZE);
-            if (firstPageData == null || !firstPageData.getBooleanValue("success")) {
-                return failTask(task, null, "从 Steam API 获取首页数据失败");
+            int startPage = Math.max(defaultInt(task.getSyncedPages()), 0);
+            int pageSize = positiveOrDefault(task.getPageSize(), syncProperties.getPageSize());
+            SteamMarketPageResult firstPageResult = null;
+            int totalCount;
+            int totalPages;
+
+            if (startPage == 0 || defaultInt(task.getTotalCount()) <= 0 || defaultInt(task.getTotalPages()) <= 0) {
+                firstPageResult = fetchSteamPageWithRetry(task, 0, pageSize);
+                if (!firstPageResult.isSuccess()) {
+                    if (STATUS_PARTIAL.equalsIgnoreCase(task.getStatus())) {
+                        return 0;
+                    }
+                    return failTask(task, null, firstPageResult.getStatusCode(),
+                            firstNonBlank(firstPageResult.getErrorMessage(), "从 Steam API 获取第一页数据失败"));
+                }
+                JSONObject firstPageData = firstPageResult.getPayload();
+                totalCount = firstPageData.getIntValue("total_count", 0);
+                totalPages = (totalCount + pageSize - 1) / pageSize;
+            } else {
+                totalCount = defaultInt(task.getTotalCount());
+                totalPages = defaultInt(task.getTotalPages());
+                log.info("Resume Steam sync task from page {} with total pages {}", startPage + 1, totalPages);
             }
 
-            int totalCount = firstPageData.getIntValue("total_count", 0);
-            int totalPages = (totalCount + STEAM_PAGE_SIZE - 1) / STEAM_PAGE_SIZE;
-            int startPage = Math.max(defaultInt(task.getSyncedPages()), 0);
-            int plannedPages = Math.min(totalPages, Math.max(defaultInt(task.getPlannedPages()), startPage + MAX_PAGES_TO_SYNC));
+            int plannedPages = Math.min(
+                    totalPages,
+                    Math.max(defaultInt(task.getPlannedPages()), startPage + syncProperties.getMaxPagesPerRun())
+            );
 
             task.setStatus(STATUS_RUNNING);
             task.setTotalCount(totalCount);
             task.setTotalPages(totalPages);
             task.setPlannedPages(plannedPages);
             task.setCurrentPage(startPage);
+            task.setPageSize(pageSize);
+            task.setMaxPagesLimit(syncProperties.getMaxPagesPerRun());
+            task.setRetryCount(0);
+            task.setCooldownUntil(null);
+            Integer initialStatusCode = firstPageResult != null
+                    ? Integer.valueOf(firstPageResult.getStatusCode())
+                    : task.getLastHttpStatus();
+            task.setLastHttpStatus(initialStatusCode);
             task.setRemainingPages(Math.max(totalPages - startPage, 0));
             task.setRemainingItems(Math.max(totalCount - defaultInt(task.getProcessedCount()), 0));
             persistTask(task);
@@ -303,6 +378,9 @@ public class ItemServiceImpl implements ItemService {
                 task.setProcessedCount(totalCount);
                 task.setRemainingPages(0);
                 task.setRemainingItems(0);
+                task.setRetryCount(0);
+                task.setCooldownUntil(null);
+                task.setLastHttpStatus(200);
                 persistTask(task);
                 return 0;
             }
@@ -317,11 +395,18 @@ public class ItemServiceImpl implements ItemService {
                 task.setCurrentPage(page + 1);
                 persistTask(task);
 
-                JSONObject steamData = page == 0 ? firstPageData : fetchSteamPageWithRetry(page);
-                if (steamData == null || !steamData.getBooleanValue("success")) {
-                    return failTask(task, page + 1, "第 " + (page + 1) + " 页获取失败");
+                SteamMarketPageResult steamPageResult = page == 0 && firstPageResult != null
+                        ? firstPageResult
+                        : fetchSteamPageWithRetry(task, page, pageSize);
+                if (!steamPageResult.isSuccess()) {
+                    if (STATUS_PARTIAL.equalsIgnoreCase(task.getStatus())) {
+                        return 0;
+                    }
+                    return failTask(task, page + 1, steamPageResult.getStatusCode(),
+                            firstNonBlank(steamPageResult.getErrorMessage(), "从 Steam API 获取第 " + (page + 1) + " 页数据失败"));
                 }
 
+                JSONObject steamData = steamPageResult.getPayload();
                 JSONArray itemsArray = steamData.getJSONArray("results");
                 if (itemsArray == null || itemsArray.isEmpty()) {
                     break;
@@ -368,7 +453,7 @@ public class ItemServiceImpl implements ItemService {
                 totalUpdated += updatedCount;
                 totalSkipped += skippedCount;
 
-                int processedCount = Math.min(totalCount, (page * STEAM_PAGE_SIZE) + itemsArray.size());
+                int processedCount = Math.min(totalCount, (page * pageSize) + itemsArray.size());
                 task.setSyncedPages(page + 1);
                 task.setProcessedCount(processedCount);
                 task.setSavedCount(totalSaved);
@@ -376,18 +461,28 @@ public class ItemServiceImpl implements ItemService {
                 task.setSkippedCount(totalSkipped);
                 task.setRemainingPages(Math.max(totalPages - task.getSyncedPages(), 0));
                 task.setRemainingItems(Math.max(totalCount - processedCount, 0));
+                task.setRetryCount(0);
+                task.setCooldownUntil(null);
+                task.setLastHttpStatus(200);
+                task.setFailedPage(null);
+                task.setErrorMessage(null);
                 persistTask(task);
 
                 if (processedCount >= totalCount) {
                     break;
                 }
 
-                Thread.sleep(5000L);
+                Thread.sleep(syncProperties.getPageDelayMillis());
             }
 
             task.setStatus(task.getRemainingPages() > 0 ? STATUS_PARTIAL : STATUS_COMPLETED);
             task.setFinishedAt(LocalDateTime.now());
             task.setCurrentPage(task.getSyncedPages());
+            task.setRetryCount(0);
+            task.setCooldownUntil(null);
+            task.setLastHttpStatus(200);
+            task.setFailedPage(null);
+            task.setErrorMessage(null);
             persistTask(task);
 
             log.info("Steam item sync finished: taskId={}, syncedPages={}, totalPages={}, processed={}/{}",
@@ -396,10 +491,10 @@ public class ItemServiceImpl implements ItemService {
             return batchSaved + batchUpdated;
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
-            return failTask(task, task.getCurrentPage(), "同步过程被中断");
+            return failTask(task, task.getCurrentPage(), task.getLastHttpStatus(), "同步过程被中断");
         } catch (Exception e) {
             log.error("Sync Steam items failed: {}", e.getMessage(), e);
-            return failTask(task, task.getCurrentPage(), "同步失败: " + e.getMessage());
+            return failTask(task, task.getCurrentPage(), task.getLastHttpStatus(), "同步失败: " + e.getMessage());
         }
     }
 
@@ -414,30 +509,84 @@ public class ItemServiceImpl implements ItemService {
         return existingItemMap;
     }
 
-    private JSONObject fetchSteamPageWithRetry(int page) throws InterruptedException {
-        int retryCount = 0;
-        int maxRetries = 3;
+    private SteamMarketPageResult fetchSteamPageWithRetry(SteamSyncTask task, int page, int pageSize) throws InterruptedException {
+        long retryBudgetDeadline = System.currentTimeMillis()
+                + (long) syncProperties.getAutoRetryBudgetMinutes() * 60_000L;
+        int retryCount = defaultInt(task.getRetryCount());
 
-        while (retryCount < maxRetries) {
-            JSONObject steamData = steamApiClient.getCsgoItems(page * STEAM_PAGE_SIZE, STEAM_PAGE_SIZE);
-            if (steamData != null && steamData.getBooleanValue("success")) {
-                return steamData;
+        while (true) {
+            SteamMarketPageResult steamResult = steamApiClient.getCsgoItems(page * pageSize, pageSize);
+            task.setLastHttpStatus(steamResult.getStatusCode());
+
+            if (steamResult.isSuccess()) {
+                task.setStatus(STATUS_RUNNING);
+                task.setRetryCount(0);
+                task.setCooldownUntil(null);
+                task.setLastHttpStatus(200);
+                task.setFailedPage(null);
+                task.setErrorMessage(null);
+                persistTask(task);
+                return steamResult;
             }
 
-            retryCount++;
-            if (retryCount < maxRetries) {
-                int waitSeconds = 10 * retryCount;
-                log.warn("Steam page {} request failed, retry {} after {} seconds", page + 1, retryCount, waitSeconds);
+            if (steamResult.isRateLimited()) {
+                retryCount++;
+                int waitSeconds = resolveRateLimitWaitSeconds(steamResult.getRetryAfterSeconds(), retryCount);
+                LocalDateTime cooldownUntil = LocalDateTime.now().plusSeconds(waitSeconds);
+
+                if (System.currentTimeMillis() + (waitSeconds * 1000L) > retryBudgetDeadline) {
+                    task.setStatus(STATUS_PARTIAL);
+                    task.setRetryCount(retryCount);
+                    task.setCooldownUntil(null);
+                    task.setFailedPage(page + 1);
+                    task.setErrorMessage("Steam 限流持续过久，已保留进度，可稍后继续同步");
+                    task.setFinishedAt(LocalDateTime.now());
+                    persistTask(task);
+                    return SteamMarketPageResult.failure(steamResult.getStatusCode(), task.getErrorMessage());
+                }
+
+                task.setStatus(STATUS_COOLDOWN);
+                task.setRetryCount(retryCount);
+                task.setCooldownUntil(cooldownUntil);
+                task.setFailedPage(null);
+                task.setErrorMessage(null);
+                persistTask(task);
+
+                log.warn("Steam rate limited on page {}, retryCount={}, waitSeconds={}, cooldownUntil={}",
+                        page + 1, retryCount, waitSeconds, cooldownUntil);
                 Thread.sleep(waitSeconds * 1000L);
-            }
-        }
 
-        return null;
+                task.setStatus(STATUS_RUNNING);
+                task.setCooldownUntil(null);
+                task.setStartedAt(task.getStartedAt() == null ? LocalDateTime.now() : task.getStartedAt());
+                persistTask(task);
+                continue;
+            }
+
+            return steamResult;
+        }
     }
 
-    private int failTask(SteamSyncTask task, Integer failedPage, String message) {
+    private int resolveRateLimitWaitSeconds(Integer retryAfterSeconds, int retryCount) {
+        if (retryAfterSeconds != null && retryAfterSeconds > 0) {
+            return retryAfterSeconds;
+        }
+
+        List<Integer> backoffSeconds = syncProperties.getRateLimitBackoffSeconds();
+        if (backoffSeconds == null || backoffSeconds.isEmpty()) {
+            return 60;
+        }
+
+        int index = Math.min(Math.max(retryCount - 1, 0), backoffSeconds.size() - 1);
+        Integer value = backoffSeconds.get(index);
+        return value == null || value <= 0 ? 60 : value;
+    }
+
+    private int failTask(SteamSyncTask task, Integer failedPage, Integer statusCode, String message) {
         task.setStatus(STATUS_FAILED);
         task.setFailedPage(failedPage);
+        task.setLastHttpStatus(statusCode);
+        task.setCooldownUntil(null);
         task.setErrorMessage(message);
         task.setFinishedAt(LocalDateTime.now());
         persistTask(task);
@@ -467,7 +616,12 @@ public class ItemServiceImpl implements ItemService {
         status.put("skippedCount", 0);
         status.put("remainingPages", 0);
         status.put("remainingItems", 0);
-        status.put("maxPagesLimit", MAX_PAGES_TO_SYNC);
+        status.put("maxPagesLimit", syncProperties.getMaxPagesPerRun());
+        status.put("pageSize", syncProperties.getPageSize());
+        status.put("retryCount", 0);
+        status.put("lastHttpStatus", null);
+        status.put("cooldownUntil", null);
+        status.put("autoRetrying", false);
         status.put("failedPage", null);
         status.put("error", null);
         status.put("lastDurationSeconds", 0);
@@ -485,6 +639,7 @@ public class ItemServiceImpl implements ItemService {
         }
         return switch (status.toUpperCase()) {
             case STATUS_RUNNING -> "syncing";
+            case STATUS_COOLDOWN -> "cooldown";
             case STATUS_COMPLETED -> "completed";
             case STATUS_PARTIAL -> "partial";
             case STATUS_FAILED -> "failed";
@@ -492,7 +647,7 @@ public class ItemServiceImpl implements ItemService {
         };
     }
 
-    private String buildStatusMessage(SteamSyncTask task) {
+    private String buildStatusMessage(SteamSyncTask task, boolean canContinue, int nextStartPage, int nextEndPage) {
         if (task == null) {
             return "尚未开始同步";
         }
@@ -502,17 +657,28 @@ public class ItemServiceImpl implements ItemService {
         int totalPages = defaultInt(task.getTotalPages());
         int syncedPages = defaultInt(task.getSyncedPages());
         int remainingPages = defaultInt(task.getRemainingPages());
-        int nextStartPage = totalPages > syncedPages ? syncedPages + 1 : 0;
-        int nextEndPage = nextStartPage > 0 ? Math.min(totalPages, syncedPages + MAX_PAGES_TO_SYNC) : 0;
 
         return switch (firstNonBlank(task.getStatus()).toUpperCase()) {
             case STATUS_RUNNING -> "正在同步第 " + currentPage + " / " + plannedPages + " 页";
+            case STATUS_COOLDOWN -> "Steam 限流中，系统将在 "
+                    + formatCooldownTime(task.getCooldownUntil())
+                    + " 自动重试第 " + currentPage + " 页";
             case STATUS_COMPLETED -> "Steam 饰品已全部同步完成";
-            case STATUS_PARTIAL -> "本轮已完成，可继续同步第 " + nextStartPage + " - " + nextEndPage
-                    + " 页，剩余 " + remainingPages + " 页";
+            case STATUS_PARTIAL -> canContinue
+                    ? "本轮已完成，可继续同步第 " + nextStartPage + " - " + nextEndPage + " 页，剩余 " + remainingPages + " 页"
+                    : firstNonBlank(task.getErrorMessage(), "本轮同步已结束");
             case STATUS_FAILED -> firstNonBlank(task.getErrorMessage(), "同步失败");
-            default -> "尚未开始同步";
+            default -> totalPages > 0 && totalPages > syncedPages
+                    ? "可继续同步剩余页面"
+                    : "尚未开始同步";
         };
+    }
+
+    private String formatCooldownTime(LocalDateTime cooldownUntil) {
+        if (cooldownUntil == null) {
+            return "稍后";
+        }
+        return cooldownUntil.format(COOLDOWN_TIME_FORMATTER);
     }
 
     private long calculateDurationSeconds(SteamSyncTask task) {
@@ -530,6 +696,10 @@ public class ItemServiceImpl implements ItemService {
 
     private int defaultInt(Integer value) {
         return value == null ? 0 : value;
+    }
+
+    private int positiveOrDefault(Integer value, int defaultValue) {
+        return value == null || value <= 0 ? defaultValue : value;
     }
 
     private String firstNonBlank(String... values) {

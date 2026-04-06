@@ -1,96 +1,108 @@
 <template>
   <div class="orders-page">
-    <nav class="navbar-dark">
-      <div class="nav-links-left">
-        <router-link to="/" class="nav-link">首页</router-link>
-        <router-link to="/items" class="nav-link">市场</router-link>
-        <router-link to="/news" class="nav-link">资讯</router-link>
-        <router-link to="/player-shows" class="nav-link">玩家秀</router-link>
-      </div>
+    <SiteHeader />
 
-      <div class="user-nav-links">
-        <router-link to="/user/inventory" class="nav-link">我的库存</router-link>
-        <router-link to="/user/sell-orders" class="nav-link">我的出售</router-link>
-        <router-link to="/user/buy-orders" class="nav-link">我的求购</router-link>
-        <div class="nav-user-section">
-          <div class="user-profile" @click="$router.push('/user/profile')">
-            <el-avatar :size="32" :src="userStore.userInfo?.avatar" />
-            <span class="username">{{ userStore.userInfo?.username }}</span>
+    <main class="page-main">
+      <section class="page-panel">
+        <div class="section-header">
+          <div class="tab-group">
+            <div class="tab-item active-blue">我的订单</div>
+            <div class="tab-item plain">查看买入和卖出的交易订单</div>
+          </div>
+          <div class="toolbar-right">
+            <el-radio-group v-model="orderType" size="large" @change="fetchOrders">
+              <el-radio-button label="buy">我购买的</el-radio-button>
+              <el-radio-button label="sell">我卖出的</el-radio-button>
+            </el-radio-group>
           </div>
         </div>
-      </div>
-    </nav>
 
-    <div class="main-container">
-      <div class="page-header">
-        <div>
-          <h1>我的订单</h1>
-          <p>查看买入和卖出的交易订单，并在这里完成支付、发货和确认收货。</p>
-        </div>
-        <el-radio-group v-model="orderType" size="large" @change="fetchOrders">
-          <el-radio-button label="buy">我购买的</el-radio-button>
-          <el-radio-button label="sell">我卖出的</el-radio-button>
-        </el-radio-group>
-      </div>
+        <div class="order-list" v-loading="loading">
+          <el-empty v-if="orders.length === 0" description="暂无订单" />
 
-      <div class="orders-list" v-loading="loading">
-        <el-empty v-if="orders.length === 0" description="暂无订单" />
-
-        <div v-else class="order-cards">
-          <el-card v-for="order in orders" :key="order.id" class="order-card" shadow="hover">
-            <div class="order-header">
-              <div>
-                <div class="order-no">订单号：{{ order.orderNo || order.id }}</div>
-                <div class="order-time">{{ formatDate(order.createdAt) }}</div>
-              </div>
-              <el-tag :type="getStatusType(order.status)">{{ getStatusText(order.status) }}</el-tag>
-            </div>
-
-            <div class="order-body">
-              <div class="item-info">
-                <img :src="order.item?.iconUrl || '/default-item.png'" class="item-image" />
+          <div v-else class="order-cards">
+            <article v-for="order in orders" :key="order.id" class="order-card">
+              <div class="order-head">
                 <div>
-                  <h3>{{ order.item?.nameCn || order.item?.name || '未知饰品' }}</h3>
-                  <p v-if="order.item?.exterior">{{ order.item.exterior }}</p>
+                  <div class="order-no">订单号：{{ order.orderNo || order.id }}</div>
+                  <div class="order-time">{{ formatDate(order.createdAt) }}</div>
+                </div>
+                <el-tag :type="getStatusType(order.status)">{{ getStatusText(order.status) }}</el-tag>
+              </div>
+
+              <div class="order-body">
+                <div class="item-info">
+                  <img :src="order.item?.iconUrl || '/default-item.png'" class="item-image" />
+                  <div>
+                    <h3>{{ order.item?.nameCn || order.item?.name || '未知饰品' }}</h3>
+                    <p v-if="getOrderExteriorText(order)">
+                      {{ getOrderExteriorText(order) }}
+                    </p>
+                  </div>
+                </div>
+
+                <div class="price-info">
+                  <span>成交价格：¥ {{ formatPrice(order.price) }}</span>
+                  <span>手续费：¥ {{ formatPrice(order.fee) }}</span>
+                  <span v-if="orderType === 'sell'">实际到账：¥ {{ formatPrice(order.actualAmount) }}</span>
+                </div>
+
+                <div class="party-info">
+                  <span v-if="orderType === 'buy'">卖家：{{ order.seller?.username || '未知用户' }}</span>
+                  <span v-else>买家：{{ order.buyer?.username || '未知用户' }}</span>
                 </div>
               </div>
 
-              <div class="price-info">
-                <span>成交价格：￥{{ formatPrice(order.price) }}</span>
-                <span>手续费：￥{{ formatPrice(order.fee) }}</span>
-                <span v-if="orderType === 'sell'">实际到账：￥{{ formatPrice(order.actualAmount) }}</span>
-              </div>
+              <div class="order-footer">
+                <el-button
+                  v-if="orderType === 'buy' && order.status === 0"
+                  type="primary"
+                  :loading="paying"
+                  @click="handlePay(order)"
+                >
+                  立即支付
+                </el-button>
 
-              <div class="party-info">
-                <span v-if="orderType === 'buy'">卖家：{{ order.seller?.username || '未知用户' }}</span>
-                <span v-else>买家：{{ order.buyer?.username || '未知用户' }}</span>
-              </div>
-            </div>
+                <el-button
+                  v-if="orderType === 'buy' && order.status === 3"
+                  type="success"
+                  :loading="confirming"
+                  @click="handleConfirm(order)"
+                >
+                  确认收货
+                </el-button>
 
-            <div class="order-footer">
-              <el-button v-if="orderType === 'buy' && order.status === 0" type="primary" :loading="paying" @click="handlePay(order)">
-                立即支付
-              </el-button>
-              <el-button v-if="orderType === 'buy' && order.status === 3" type="success" :loading="confirming" @click="handleConfirm(order)">
-                确认收货
-              </el-button>
-              <el-button v-if="orderType === 'sell' && order.status === 2" type="primary" :loading="shipping" @click="showShipDialog(order)">
-                发货
-              </el-button>
-              <el-button v-if="order.status === 0 || order.status === 2" :loading="cancelling" @click="handleCancel(order)">
-                取消订单
-              </el-button>
-              <el-button @click="viewDetail(order)">查看详情</el-button>
-            </div>
-          </el-card>
+                <el-button
+                  v-if="orderType === 'sell' && order.status === 2"
+                  type="primary"
+                  :loading="shipping"
+                  @click="showShipDialog(order)"
+                >
+                  登记卖家报价
+                </el-button>
+
+                <el-button v-if="order.status === 1" :loading="loading" @click="handleBotCheck(order)">立即检测</el-button>
+
+                <el-button
+                  v-if="order.status === 0 || order.status === 2"
+                  :loading="cancelling"
+                  @click="handleCancel(order)"
+                >
+                  取消订单
+                </el-button>
+
+                <el-button @click="viewDetail(order)">查看详情</el-button>
+              </div>
+            </article>
+          </div>
         </div>
-      </div>
-    </div>
+      </section>
+    </main>
 
-    <el-dialog v-model="shipDialogVisible" title="发货" width="500px">
+    <el-dialog v-model="shipDialogVisible" title="登记卖家报价" width="500px">
       <el-form :model="shipForm" label-position="top">
         <el-form-item label="Steam 交易报价 ID">
-          <el-input v-model="shipForm.tradeOfferId" placeholder="请输入 Steam 交易报价 ID" />
+          <el-input v-model="shipForm.tradeOfferId" placeholder="请输入卖家发出的 Steam 交易报价 ID" />
         </el-form-item>
         <el-form-item label="交易报价链接">
           <el-input v-model="shipForm.tradeOfferUrl" placeholder="https://steamcommunity.com/tradeoffer/..." />
@@ -99,11 +111,11 @@
 
       <template #footer>
         <el-button @click="shipDialogVisible = false">取消</el-button>
-        <el-button type="primary" :loading="shipping" @click="handleShip">确认发货</el-button>
+        <el-button type="primary" :loading="shipping" @click="handleShip">确认登记</el-button>
       </template>
     </el-dialog>
 
-    <el-dialog v-model="detailDialogVisible" title="订单详情" width="600px">
+    <el-dialog v-model="detailDialogVisible" title="订单详情" width="680px">
       <div v-if="currentOrder" class="detail-grid">
         <div class="detail-block">
           <h4>订单信息</h4>
@@ -111,18 +123,20 @@
           <p>状态：{{ getStatusText(currentOrder.status) }}</p>
           <p>创建时间：{{ formatDate(currentOrder.createdAt) }}</p>
           <p v-if="currentOrder.paidAt">支付时间：{{ formatDate(currentOrder.paidAt) }}</p>
-          <p v-if="currentOrder.sentAt">发货时间：{{ formatDate(currentOrder.sentAt) }}</p>
+          <p v-if="currentOrder.sentAt">报价登记时间：{{ formatDate(currentOrder.sentAt) }}</p>
           <p v-if="currentOrder.completedAt">完成时间：{{ formatDate(currentOrder.completedAt) }}</p>
         </div>
 
         <div class="detail-block">
-          <h4>商品信息</h4>
-          <p>名称：{{ currentOrder.item?.nameCn || currentOrder.item?.name || '未知饰品' }}</p>
-          <p>价格：￥{{ formatPrice(currentOrder.price) }}</p>
-          <p>手续费：￥{{ formatPrice(currentOrder.fee) }}</p>
-          <p v-if="currentOrder.tradeOfferId">交易报价 ID：{{ currentOrder.tradeOfferId }}</p>
+          <h4>交易信息</h4>
+          <p>饰品：{{ currentOrder.item?.nameCn || currentOrder.item?.name || '未知饰品' }}</p>
+          <p>价格：¥ {{ formatPrice(currentOrder.price) }}</p>
+          <p>手续费：¥ {{ formatPrice(currentOrder.fee) }}</p>
+          <p>Steam 报价状态：{{ currentOrder.steamOfferStateText || '-' }}</p>
+          <p v-if="currentOrder.monitorErrorMessage">检测备注：{{ currentOrder.monitorErrorMessage }}</p>
+          <p v-if="currentOrder.tradeOfferId">报价 ID：{{ currentOrder.tradeOfferId }}</p>
           <p v-if="currentOrder.tradeOfferUrl">
-            交易链接：
+            报价链接：
             <a :href="currentOrder.tradeOfferUrl" target="_blank" rel="noreferrer">打开链接</a>
           </p>
         </div>
@@ -132,13 +146,15 @@
 </template>
 
 <script setup>
-import { ref, onMounted, onUnmounted } from 'vue'
+import { onMounted, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import request from '@/utils/request'
-import websocketService from '@/utils/websocket'
-import { useUserStore } from '@/stores/user'
-
-const userStore = useUserStore()
+import SiteHeader from '@/components/SiteHeader.vue'
+import {
+  getExteriorText,
+  normalizeWearValue,
+  resolveExterior as resolveExteriorCode
+} from '@/utils/itemExterior'
 
 const loading = ref(false)
 const orderType = ref('buy')
@@ -158,12 +174,25 @@ const shipForm = ref({
 const detailDialogVisible = ref(false)
 const currentOrder = ref(null)
 
+const getOrderExteriorText = (order) => {
+  const exterior = resolveExteriorCode(
+    normalizeWearValue(order?.inventory?.paintWear),
+    order?.inventory?.exterior,
+    order?.inventory?.wearName,
+    order?.item?.exterior,
+    order?.inventory?.name,
+    order?.item?.nameCn,
+    order?.item?.name
+  )
+  return exterior ? getExteriorText(exterior) : ''
+}
+
 const fetchOrders = async () => {
   loading.value = true
   try {
     const url = orderType.value === 'buy' ? '/v1/order/my/buy' : '/v1/order/my/sell'
     const res = await request.get(url)
-    orders.value = Array.isArray(res) ? res : (res?.list || [])
+    orders.value = Array.isArray(res) ? res : res?.list || []
   } catch (error) {
     ElMessage.error(error?.message || '获取订单列表失败')
   } finally {
@@ -173,22 +202,18 @@ const fetchOrders = async () => {
 
 const handlePay = async (order) => {
   try {
-    await ElMessageBox.confirm(
-      `确认支付 ￥${formatPrice(order.price)} 购买 ${order.item?.nameCn || order.item?.name || '该商品'} 吗？`,
-      '确认支付',
-      {
-        confirmButtonText: '确认支付',
-        cancelButtonText: '取消',
-        type: 'warning'
-      }
-    )
+    await ElMessageBox.confirm(`确认支付 ¥${formatPrice(order.price)} 购买这件饰品吗？`, '确认支付', {
+      confirmButtonText: '确认支付',
+      cancelButtonText: '取消',
+      type: 'warning'
+    })
 
     paying.value = true
     await request.post(`/v1/order/${order.id}/pay`)
     ElMessage.success('支付成功')
     fetchOrders()
   } catch (error) {
-    if (error !== 'cancel') {
+    if (error !== 'cancel' && error !== 'close') {
       ElMessage.error(error?.response?.data?.message || error?.message || '支付失败')
     }
   } finally {
@@ -217,34 +242,42 @@ const handleShip = async () => {
       tradeOfferId: shipForm.value.tradeOfferId,
       tradeOfferUrl: shipForm.value.tradeOfferUrl
     })
-    ElMessage.success('发货成功')
+    ElMessage.success('卖家报价已登记')
     shipDialogVisible.value = false
     fetchOrders()
   } catch (error) {
-    ElMessage.error(error?.response?.data?.message || error?.message || '发货失败')
+    ElMessage.error(error?.response?.data?.message || error?.message || '登记卖家报价失败')
   } finally {
     shipping.value = false
   }
 }
 
+const handleBotCheck = async (order) => {
+  loading.value = true
+  try {
+    await request.post(`/v1/order/${order.id}/bot-check`)
+    ElMessage.success('报价检测已完成')
+    fetchOrders()
+  } catch (error) {
+    ElMessage.error(error?.response?.data?.message || error?.message || '检测失败')
+  } finally {
+    loading.value = false
+  }
+}
+
 const handleConfirm = async (order) => {
   try {
-    await ElMessageBox.confirm(
-      '确认已经收到商品吗？确认后款项会打给卖家。',
-      '确认收货',
-      {
-        confirmButtonText: '确认收货',
-        cancelButtonText: '取消',
-        type: 'warning'
-      }
-    )
-
+    await ElMessageBox.confirm('确认已经收到饰品了吗？', '确认收货', {
+      confirmButtonText: '确认',
+      cancelButtonText: '取消',
+      type: 'warning'
+    })
     confirming.value = true
     await request.post(`/v1/order/${order.id}/confirm`)
     ElMessage.success('确认收货成功')
     fetchOrders()
   } catch (error) {
-    if (error !== 'cancel') {
+    if (error !== 'cancel' && error !== 'close') {
       ElMessage.error(error?.response?.data?.message || error?.message || '确认收货失败')
     }
   } finally {
@@ -254,22 +287,17 @@ const handleConfirm = async (order) => {
 
 const handleCancel = async (order) => {
   try {
-    await ElMessageBox.confirm(
-      '确定要取消该订单吗？',
-      '取消订单',
-      {
-        confirmButtonText: '确定',
-        cancelButtonText: '取消',
-        type: 'warning'
-      }
-    )
-
+    await ElMessageBox.confirm('确定要取消这个订单吗？', '提示', {
+      confirmButtonText: '确定',
+      cancelButtonText: '取消',
+      type: 'warning'
+    })
     cancelling.value = true
     await request.post(`/v1/order/${order.id}/cancel`)
     ElMessage.success('订单已取消')
     fetchOrders()
   } catch (error) {
-    if (error !== 'cancel') {
+    if (error !== 'cancel' && error !== 'close') {
       ElMessage.error(error?.response?.data?.message || error?.message || '取消订单失败')
     }
   } finally {
@@ -277,204 +305,200 @@ const handleCancel = async (order) => {
   }
 }
 
-const viewDetail = (order) => {
-  currentOrder.value = order
-  detailDialogVisible.value = true
+const viewDetail = async (order) => {
+  try {
+    const detail = await request.get(`/v1/order/${order.id}`)
+    currentOrder.value = detail
+    detailDialogVisible.value = true
+  } catch (error) {
+    ElMessage.error(error?.response?.data?.message || error?.message || '获取订单详情失败')
+  }
 }
 
 const getStatusText = (status) => {
-  const statusMap = {
-    0: '待确认',
-    1: '报价中',
-    2: '待发货',
-    3: '待收货',
+  const map = {
+    0: '待支付',
+    1: '待发货',
+    2: '待收货',
+    3: '已发货',
     4: '已完成',
-    5: '已取消',
-    6: '纠纷中'
+    5: '已取消'
   }
-  return statusMap[status] || '未知'
+  return map[status] || '未知状态'
 }
 
 const getStatusType = (status) => {
-  const typeMap = {
-    0: 'info',
-    1: 'warning',
+  const map = {
+    0: 'warning',
+    1: 'primary',
     2: 'warning',
-    3: 'primary',
+    3: 'success',
     4: 'success',
-    5: 'info',
-    6: 'danger'
+    5: 'info'
   }
-  return typeMap[status] || 'info'
+  return map[status] || 'info'
 }
 
-const formatDate = (dateStr) => {
-  if (!dateStr) return '-'
-  return new Date(dateStr).toLocaleString('zh-CN')
-}
-
-const formatPrice = (value) => {
-  return Number(value || 0).toFixed(2)
-}
-
-const handleWebSocketMessage = (event) => {
-  const payload = event.detail
-  fetchOrders()
-  if (payload?.message) {
-    ElMessage.info(payload.message)
-  }
-}
+const formatPrice = (value) => Number(value || 0).toFixed(2)
+const formatDate = (value) => (value ? new Date(value).toLocaleString('zh-CN') : '-')
 
 onMounted(() => {
   fetchOrders()
-  websocketService.connect()
-  window.addEventListener('ws-order-update', handleWebSocketMessage)
-})
-
-onUnmounted(() => {
-  window.removeEventListener('ws-order-update', handleWebSocketMessage)
 })
 </script>
 
 <style scoped>
 .orders-page {
   min-height: 100vh;
-  background: linear-gradient(180deg, #111927 0%, #152032 100%);
-  color: #eef3ff;
+  background: #f3f4f6;
 }
 
-.navbar-dark {
-  position: sticky;
-  top: 0;
-  z-index: 20;
+.page-main {
+  width: min(1240px, calc(100% - 40px));
+  margin: 0 auto;
+  padding: 104px 0 36px;
+}
+
+.page-panel {
+  border-radius: 12px;
+  background: #fff;
+  overflow: hidden;
+  box-shadow: 0 12px 28px rgba(17, 24, 39, 0.08);
+}
+
+.section-header {
   display: flex;
+  align-items: center;
   justify-content: space-between;
-  align-items: center;
-  padding: 0 24px;
-  height: 64px;
-  background: rgba(13, 20, 31, 0.92);
-  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
-  backdrop-filter: blur(10px);
+  background: #ececec;
+  border-bottom: 1px solid #e2e2e2;
 }
 
-.nav-links-left,
-.user-nav-links,
-.nav-user-section {
+.tab-group {
   display: flex;
   align-items: center;
-  gap: 16px;
+  gap: 36px;
 }
 
-.nav-link {
-  color: rgba(238, 243, 255, 0.76);
-  text-decoration: none;
+.tab-item {
+  display: flex;
+  align-items: center;
+  min-height: 58px;
+  padding: 0 22px;
+  color: #666f7d;
+  font-size: 16px;
+  font-weight: 600;
 }
 
-.nav-link:hover {
+.tab-item.active-blue {
+  background: #4e86dc;
   color: #fff;
 }
 
-.user-profile {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  cursor: pointer;
+.toolbar-right {
+  padding-right: 24px;
 }
 
-.main-container {
-  max-width: 1200px;
-  margin: 0 auto;
-  padding: 32px 20px 48px;
-}
-
-.page-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-end;
-  gap: 16px;
-  margin-bottom: 24px;
-}
-
-.page-header h1 {
-  margin: 0 0 8px;
-}
-
-.page-header p {
-  margin: 0;
-  color: rgba(238, 243, 255, 0.7);
+.order-list {
+  padding: 24px;
 }
 
 .order-cards {
-  display: grid;
-  gap: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
 }
 
 .order-card {
-  border-radius: 20px;
+  border: 1px solid #ececec;
+  border-radius: 12px;
+  padding: 20px;
 }
 
-.order-header,
-.order-footer {
+.order-head {
   display: flex;
-  justify-content: space-between;
   align-items: center;
-  gap: 12px;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.order-no {
+  color: #111827;
+  font-weight: 600;
+}
+
+.order-time {
+  margin-top: 6px;
+  color: #9ca3af;
+  font-size: 13px;
 }
 
 .order-body {
-  display: grid;
-  grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr) minmax(0, 1fr);
-  gap: 20px;
-  margin: 20px 0;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  margin-top: 18px;
 }
 
 .item-info {
   display: flex;
-  gap: 14px;
   align-items: center;
+  gap: 14px;
 }
 
 .item-image {
   width: 72px;
   height: 72px;
   object-fit: contain;
-  border-radius: 16px;
-  background: #f5f7fb;
 }
 
-.price-info,
-.party-info {
-  display: grid;
-  gap: 8px;
+.item-info h3 {
+  margin: 0 0 6px;
+  color: #111827;
+}
+
+.item-info p,
+.price-info span,
+.party-info span {
+  color: #4b5563;
+}
+
+.price-info {
+  display: flex;
+  gap: 18px;
+  flex-wrap: wrap;
+}
+
+.order-footer {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-top: 18px;
 }
 
 .detail-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 16px;
-}
-
-.detail-block {
-  padding: 16px;
-  border-radius: 16px;
-  background: #f7f9fc;
+  gap: 20px;
 }
 
 .detail-block h4 {
-  margin-top: 0;
+  margin: 0 0 12px;
+}
+
+.detail-block p {
+  margin: 0 0 10px;
+  color: #4b5563;
 }
 
 @media (max-width: 900px) {
-  .order-body,
-  .detail-grid {
-    grid-template-columns: 1fr;
+  .section-header {
+    flex-direction: column;
+    align-items: stretch;
   }
 
-  .page-header,
-  .order-header,
-  .order-footer {
-    flex-direction: column;
-    align-items: flex-start;
+  .detail-grid {
+    grid-template-columns: 1fr;
   }
 }
 </style>

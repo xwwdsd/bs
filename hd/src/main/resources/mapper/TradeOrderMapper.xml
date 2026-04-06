@@ -24,6 +24,15 @@
         <result column="status" property="status"/>
         <result column="trade_offer_id" property="tradeOfferId"/>
         <result column="trade_offer_url" property="tradeOfferUrl"/>
+        <result column="delivery_stage" property="deliveryStage"/>
+        <result column="steam_offer_state" property="steamOfferState"/>
+        <result column="steam_offer_state_text" property="steamOfferStateText"/>
+        <result column="bot_offer_dispatched_at" property="botOfferDispatchedAt"/>
+        <result column="seller_offer_confirmed_at" property="sellerOfferConfirmedAt"/>
+        <result column="last_offer_check_at" property="lastOfferCheckAt"/>
+        <result column="inventory_verified_at" property="inventoryVerifiedAt"/>
+        <result column="bot_received_at" property="botReceivedAt"/>
+        <result column="monitor_error_message" property="monitorErrorMessage"/>
         <result column="created_at" property="createdAt"/>
         <result column="updated_at" property="updatedAt"/>
         <result column="paid_at" property="paidAt"/>
@@ -35,7 +44,9 @@
     <!-- 基础列列表 -->
     <sql id="Base_Column_List">
         id, order_no, buyer_id, seller_id, item_id, inventory_id, price, fee, actual_amount,
-        status, trade_offer_id, trade_offer_url, created_at, updated_at, paid_at, sent_at, completed_at, cancelled_at
+        status, trade_offer_id, trade_offer_url, delivery_stage, steam_offer_state, steam_offer_state_text,
+        bot_offer_dispatched_at, seller_offer_confirmed_at, last_offer_check_at, inventory_verified_at,
+        bot_received_at, monitor_error_message, created_at, updated_at, paid_at, sent_at, completed_at, cancelled_at
     </sql>
 
     <!-- 查询所有订单（MyBatis-Plus兼容） -->

@@ -1,6 +1,7 @@
 package com.cs2trade.utils;
 
 import io.jsonwebtoken.*;
+import io.jsonwebtoken.io.Decoders;
 import io.jsonwebtoken.security.Keys;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -11,6 +12,7 @@ import java.nio.charset.StandardCharsets;
 import java.util.Date;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.regex.Pattern;
 
 /**
  * JWT工具类
@@ -23,6 +25,9 @@ import java.util.Map;
 @Slf4j
 @Component
 public class JwtUtils {
+
+    private static final int HS256_MIN_KEY_BYTES = 32;
+    private static final Pattern BASE64_PATTERN = Pattern.compile("^[A-Za-z0-9+/=_-]+$");
 
     /**
      * JWT密钥 - 从配置文件读取
@@ -49,8 +54,47 @@ public class JwtUtils {
      * @return SecretKey 密钥对象
      */
     private SecretKey getSigningKey() {
-        // 使用密钥字符串生成HMAC-SHA256密钥
-        return Keys.hmacShaKeyFor(jwtSecret.getBytes(StandardCharsets.UTF_8));
+        byte[] keyBytes = resolveSigningKeyBytes();
+        validateSigningKeyLength(keyBytes);
+        return Keys.hmacShaKeyFor(keyBytes);
+    }
+
+    public void validateConfiguredSecret() {
+        byte[] keyBytes = resolveSigningKeyBytes();
+        validateSigningKeyLength(keyBytes);
+    }
+
+    private byte[] resolveSigningKeyBytes() {
+        if (jwtSecret == null) {
+            throw new IllegalStateException("JWT_SECRET is missing");
+        }
+
+        String normalized = jwtSecret.trim();
+        if (normalized.isEmpty()) {
+            throw new IllegalStateException("JWT_SECRET is blank");
+        }
+
+        if (looksLikeBase64(normalized)) {
+            try {
+                return Decoders.BASE64.decode(normalized);
+            } catch (IllegalArgumentException ignored) {
+                // Fall back to raw UTF-8 bytes when the configured value is not valid Base64.
+            }
+        }
+
+        return normalized.getBytes(StandardCharsets.UTF_8);
+    }
+
+    private boolean looksLikeBase64(String value) {
+        return value.length() >= 43 && BASE64_PATTERN.matcher(value).matches();
+    }
+
+    private void validateSigningKeyLength(byte[] keyBytes) {
+        if (keyBytes.length < HS256_MIN_KEY_BYTES) {
+            throw new IllegalStateException(
+                    "JWT secret is too short for HS256. Please use at least 32 bytes (256 bits), preferably a Base64-encoded random key."
+            );
+        }
     }
 
     /**

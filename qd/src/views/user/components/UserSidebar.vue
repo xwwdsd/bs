@@ -1,6 +1,5 @@
 <template>
   <div class="user-sidebar">
-    <!-- User Info Card -->
     <div class="user-info-card">
       <div class="avatar-wrapper">
         <el-avatar :size="64" :src="userStore.userInfo?.avatar" />
@@ -10,7 +9,6 @@
       </div>
     </div>
 
-    <!-- Navigation Menu -->
     <div class="sidebar-menu">
       <router-link to="/user/wallet" class="menu-item" active-class="active">
         <el-icon><Wallet /></el-icon>
@@ -19,10 +17,6 @@
       <router-link to="/user/profile" class="menu-item" active-class="active">
         <el-icon><Setting /></el-icon>
         <span>账号设置</span>
-      </router-link>
-      <router-link to="/user/messages" class="menu-item" active-class="active">
-        <el-icon><Message /></el-icon>
-        <span>消息中心</span>
       </router-link>
       <router-link to="/user/favorites" class="menu-item" active-class="active">
         <el-icon><Star /></el-icon>
@@ -42,7 +36,7 @@
 
 <script setup>
 import { useUserStore } from '@/stores/user'
-import { Wallet, Setting, Message, Star, Document, Picture } from '@element-plus/icons-vue'
+import { Wallet, Setting, Star, Document, Picture } from '@element-plus/icons-vue'
 
 const userStore = useUserStore()
 </script>
@@ -76,17 +70,6 @@ const userStore = useUserStore()
 .user-name {
   font-size: 16px;
   font-weight: 600;
-  margin-bottom: 8px;
-  display: flex;
-  align-items: center;
-  gap: 5px;
-}
-
-.level-tag {
-  font-size: 10px;
-  background: #4b89dc;
-  padding: 1px 4px;
-  border-radius: 2px;
 }
 
 .sidebar-menu {

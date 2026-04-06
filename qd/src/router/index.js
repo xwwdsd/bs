@@ -30,7 +30,25 @@ const routes = [
     path: '/items',
     name: 'Items',
     component: () => import('@/views/items/index.vue'),
-    meta: { title: '市场' }
+    meta: { title: 'CS2 市场' }
+  },
+  {
+    path: '/items/dota2',
+    name: 'Dota2Items',
+    component: () => import('@/views/items/dota2.vue'),
+    meta: { title: 'DOTA2 市场' }
+  },
+  {
+    path: '/items/order/:orderId',
+    name: 'SellOrderDetail',
+    component: () => import('@/views/items/detail.vue'),
+    meta: { title: '在售详情' }
+  },
+  {
+    path: '/items/:id',
+    name: 'ItemDetail',
+    component: () => import('@/views/items/detail.vue'),
+    meta: { title: '饰品详情' }
   },
   {
     path: '/news',
@@ -45,10 +63,10 @@ const routes = [
     meta: { title: '玩家秀' }
   },
   {
-    path: '/items/:id',
-    name: 'ItemDetail',
-    component: () => import('@/views/items/detail.vue'),
-    meta: { title: '饰品详情' }
+    path: '/messages',
+    name: 'Messages',
+    component: () => import('@/views/messages/index.vue'),
+    meta: { title: '消息中心', requireAuth: true }
   },
   {
     path: '/user',
@@ -64,9 +82,7 @@ const routes = [
       },
       {
         path: 'messages',
-        name: 'UserMessages',
-        component: () => import('@/views/user/message.vue'),
-        meta: { title: '消息中心' }
+        redirect: '/messages'
       },
       {
         path: 'favorites',
@@ -122,29 +138,11 @@ const routes = [
     path: '/admin',
     name: 'AdminDashboard',
     component: () => import('@/views/admin/dashboard.vue'),
-    meta: { title: '管理后台', requireAuth: true, requireAdmin: true }
+    meta: { title: '后台管理', requireAuth: true, requireAdmin: true }
   },
   {
-    path: '/admin/sync',
+    path: '/admin/:pathMatch(.*)*',
     redirect: '/admin'
-  },
-  {
-    path: '/admin/users',
-    name: 'AdminUsers',
-    component: () => import('@/views/admin/users.vue'),
-    meta: { title: '用户管理', requireAuth: true, requireAdmin: true }
-  },
-  {
-    path: '/admin/items',
-    name: 'AdminItems',
-    component: () => import('@/views/admin/items.vue'),
-    meta: { title: '饰品管理', requireAuth: true, requireAdmin: true }
-  },
-  {
-    path: '/admin/orders',
-    name: 'AdminOrders',
-    component: () => import('@/views/admin/orders.vue'),
-    meta: { title: '订单管理', requireAuth: true, requireAdmin: true }
   },
   {
     path: '/:pathMatch(.*)*',

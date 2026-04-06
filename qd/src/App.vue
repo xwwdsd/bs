@@ -67,4 +67,30 @@ body {
 ::-webkit-scrollbar-thumb:hover {
   background: #4a4f60;
 }
+
+/* 全局覆盖 Element Plus 下拉菜单背景为深色 */
+.market-switch-dropdown,
+.market-switch-dropdown .el-dropdown-menu,
+.market-switch-dropdown .el-popper__content,
+.el-popper.market-switch-dropdown,
+.el-popper.market-switch-dropdown .el-dropdown-menu {
+  background: #171b24 !important;
+  border: none !important;
+}
+
+.market-switch-dropdown .el-dropdown-menu__item {
+  background: #171b24 !important;
+  color: #f3f4f6 !important;
+}
+
+.market-switch-dropdown .el-dropdown-menu__item:hover {
+  background: rgba(255, 255, 255, 0.08) !important;
+  color: #fff !important;
+}
+
+.market-switch-dropdown .el-dropdown-menu__item.is-disabled {
+  background: #171b24 !important;
+  color: #8c93a3 !important;
+  opacity: 0.5;
+}
 </style>

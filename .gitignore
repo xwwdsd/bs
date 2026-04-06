@@ -1,1 +1,68 @@
+# Java/Maven
+hd/target/
+hd/*.log
 hd/logs/
+hd/.idea/
+hd/**/*.iml
+hd/pom.xml.tag
+hd/pom.xml.releaseBackup
+hd/pom.xml.versionsBackup
+hd/pom.xml.next
+hd/release.properties
+hd/dependency-reduced-pom.xml
+hd/buildNumber.properties
+hd/.mvn/timing.properties
+hd/.mvn/wrapper/maven-wrapper.jar
+
+# Node.js/Frontend
+qd/node_modules/
+qd/dist/
+qd/npm-debug.log*
+qd/yarn-debug.log*
+qd/yarn-error.log*
+qd/.pnp
+qd/.pnp.js
+qd/test-results/
+qd/logs/
+qd/*.log
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Logs
+*.log
+logs/
+
+# Temporary files
+*.tmp
+*.temp
+tmp_*.json
+temp_*.json
+
+# Uploads
+hd/uploads/*
+!hd/uploads/.gitkeep
+
+# Database credentials
+hd/src/main/resources/application-local.yml
+*.env
+
+# Build artifacts
+*.jar
+*.war
+*.class
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Documentation extraction
+_doc_extract/
+
+# Temporary extension files
+_tmp_csfloat_extension/

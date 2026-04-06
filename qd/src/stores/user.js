@@ -1,165 +1,184 @@
 import { defineStore } from 'pinia'
-import { ref, computed } from 'vue'
+import { computed, ref } from 'vue'
 import request from '@/utils/request'
 
-/**
- * 用户状态管理Store
- * 使用Pinia管理用户登录状态和用户信息
- */
+const ACCESS_TOKEN_KEY = 'accessToken'
+const REFRESH_TOKEN_KEY = 'refreshToken'
+const USER_INFO_KEY = 'userInfo'
+
+const readJson = (storage, key) => {
+  const raw = storage.getItem(key)
+  if (!raw) {
+    return null
+  }
+
+  try {
+    return JSON.parse(raw)
+  } catch (error) {
+    storage.removeItem(key)
+    return null
+  }
+}
+
+const readAuthState = (storage) => ({
+  accessToken: storage.getItem(ACCESS_TOKEN_KEY) || '',
+  refreshToken: storage.getItem(REFRESH_TOKEN_KEY) || '',
+  userInfo: readJson(storage, USER_INFO_KEY)
+})
+
+const writeAuthState = (storage, accessToken, refreshToken, userInfo) => {
+  if (accessToken) {
+    storage.setItem(ACCESS_TOKEN_KEY, accessToken)
+  } else {
+    storage.removeItem(ACCESS_TOKEN_KEY)
+  }
+
+  if (refreshToken) {
+    storage.setItem(REFRESH_TOKEN_KEY, refreshToken)
+  } else {
+    storage.removeItem(REFRESH_TOKEN_KEY)
+  }
+
+  if (userInfo) {
+    storage.setItem(USER_INFO_KEY, JSON.stringify(userInfo))
+  } else {
+    storage.removeItem(USER_INFO_KEY)
+  }
+}
+
+const hydrateFromStorage = () => {
+  const sessionState = readAuthState(sessionStorage)
+  if (sessionState.accessToken || sessionState.userInfo) {
+    return { ...sessionState, persistent: false }
+  }
+
+  const persistentState = readAuthState(localStorage)
+  if (persistentState.accessToken || persistentState.userInfo) {
+    writeAuthState(
+      sessionStorage,
+      persistentState.accessToken,
+      persistentState.refreshToken,
+      persistentState.userInfo
+    )
+
+    return { ...persistentState, persistent: true }
+  }
+
+  return {
+    accessToken: '',
+    refreshToken: '',
+    userInfo: null,
+    persistent: false
+  }
+}
+
 export const useUserStore = defineStore('user', () => {
-  // ==================== State ====================
-  
-  /**
-   * 访问令牌
-   */
-  const accessToken = ref(localStorage.getItem('accessToken') || '')
-  
-  /**
-   * 刷新令牌
-   */
-  const refreshToken = ref(localStorage.getItem('refreshToken') || '')
-  
-  /**
-   * 用户信息
-   */
-  const userInfo = ref(JSON.parse(localStorage.getItem('userInfo') || 'null'))
-  
-  // ==================== Getters ====================
-  
-  /**
-   * 是否已登录
-   */
-  const isLoggedIn = computed(() => {
-    return !!accessToken.value && !!userInfo.value
-  })
-  
-  /**
-   * 是否是管理员
-   */
-  const isAdmin = computed(() => {
-    return userInfo.value?.userLevel >= 2
-  })
-  
-  /**
-   * 是否是超级管理员
-   */
-  const isSuperAdmin = computed(() => {
-    return userInfo.value?.userLevel === 3
-  })
-  
-  // ==================== Actions ====================
-  
-  /**
-   * 设置登录信息
-   * @param {Object} data 登录响应数据
-   */
-  const setLoginInfo = (data) => {
+  const initialState = hydrateFromStorage()
+
+  const accessToken = ref(initialState.accessToken)
+  const refreshToken = ref(initialState.refreshToken)
+  const userInfo = ref(initialState.userInfo)
+  const persistLogin = ref(initialState.persistent)
+
+  const isLoggedIn = computed(() => !!accessToken.value && !!userInfo.value)
+  const isAdmin = computed(() => userInfo.value?.userLevel >= 2)
+  const isSuperAdmin = computed(() => userInfo.value?.userLevel === 3)
+
+  const persistCurrentState = () => {
+    writeAuthState(sessionStorage, accessToken.value, refreshToken.value, userInfo.value)
+
+    if (persistLogin.value) {
+      writeAuthState(localStorage, accessToken.value, refreshToken.value, userInfo.value)
+    }
+  }
+
+  const setLoginInfo = (data, options = {}) => {
+    const { rememberMe = false } = options
+    const persistedUserId = readAuthState(localStorage).userInfo?.userId
+
     accessToken.value = data.accessToken
     refreshToken.value = data.refreshToken
     userInfo.value = data.userInfo
-    
-    // 持久化存储
-    localStorage.setItem('accessToken', data.accessToken)
-    localStorage.setItem('refreshToken', data.refreshToken)
-    localStorage.setItem('userInfo', JSON.stringify(data.userInfo))
-  }
-  
-  /**
-   * 更新访问令牌
-   * @param {string} token 新的访问令牌
-   */
-  const setAccessToken = (token) => {
-    accessToken.value = token
-    localStorage.setItem('accessToken', token)
-  }
-  
-  /**
-   * 更新用户信息
-   * @param {Object} info 用户信息
-   */
-  const setUserInfo = (info) => {
-    userInfo.value = { ...userInfo.value, ...info }
-    localStorage.setItem('userInfo', JSON.stringify(userInfo.value))
-  }
+    persistLogin.value = rememberMe
 
-  /**
-   * 获取最新用户信息
-   */
-  const getUserInfo = async () => {
-    try {
-      const userRes = await request.get('/v1/user/profile')
-      if (userRes) {
-        let steamBound = false
-        let steamId = null
-        
-        try {
-          const steamRes = await request.get('/v1/steam/status')
-          if (steamRes) {
-            steamBound = steamRes.bound || false
-            steamId = steamRes.steamId || null
-          }
-        } catch (steamError) {
-          console.warn('获取Steam状态失败:', steamError)
-        }
-        
-        const newInfo = {
-          ...userRes,
-          steamBound,
-          steamId
-        }
-        
-        setUserInfo(newInfo)
-      }
-    } catch (error) {
-      console.error('更新用户信息失败:', error)
+    persistCurrentState()
+
+    if (!rememberMe && persistedUserId === data.userInfo?.userId) {
+      writeAuthState(localStorage, '', '', null)
     }
   }
-  
-  /**
-   * 清除登录状态
-   */
-  const logout = () => {
+
+  const setAccessToken = (token) => {
+    accessToken.value = token
+    persistCurrentState()
+  }
+
+  const setUserInfo = (info) => {
+    userInfo.value = { ...userInfo.value, ...info }
+    persistCurrentState()
+  }
+
+  const getUserInfo = async () => {
+    try {
+      const profile = await request.get('/v1/user/profile')
+      if (!profile) {
+        return
+      }
+
+      let steamBound = false
+      let steamId = null
+
+      try {
+        const steamStatus = await request.get('/v1/steam/status')
+        if (steamStatus) {
+          steamBound = steamStatus.bound || false
+          steamId = steamStatus.steamId || null
+        }
+      } catch (steamError) {
+        console.warn('Failed to load Steam status:', steamError)
+      }
+
+      setUserInfo({
+        ...profile,
+        steamBound,
+        steamId
+      })
+    } catch (error) {
+      console.error('Failed to refresh user profile:', error)
+    }
+  }
+
+  const logout = (options = {}) => {
+    const { clearPersistent = persistLogin.value } = options
+
     accessToken.value = ''
     refreshToken.value = ''
     userInfo.value = null
-    
-    // 清除本地存储
-    localStorage.removeItem('accessToken')
-    localStorage.removeItem('refreshToken')
-    localStorage.removeItem('userInfo')
+    persistLogin.value = false
+
+    writeAuthState(sessionStorage, '', '', null)
+
+    if (clearPersistent) {
+      writeAuthState(localStorage, '', '', null)
+    }
   }
-  
-  /**
-   * 初始化（应用启动时调用）
-   */
+
   const init = () => {
-    const storedToken = localStorage.getItem('accessToken')
-    const storedUserInfo = localStorage.getItem('userInfo')
-    
-    if (storedToken) {
-      accessToken.value = storedToken
-    }
-    
-    if (storedUserInfo) {
-      try {
-        userInfo.value = JSON.parse(storedUserInfo)
-      } catch (e) {
-        console.error('解析用户信息失败:', e)
-        logout()
-      }
-    }
+    const state = hydrateFromStorage()
+    accessToken.value = state.accessToken
+    refreshToken.value = state.refreshToken
+    userInfo.value = state.userInfo
+    persistLogin.value = state.persistent
   }
-  
+
   return {
-    // State
     accessToken,
     refreshToken,
     userInfo,
-    // Getters
+    persistLogin,
     isLoggedIn,
     isAdmin,
     isSuperAdmin,
-    // Actions
     setLoginInfo,
     setAccessToken,
     setUserInfo,

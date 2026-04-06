@@ -11,8 +11,10 @@
         <association property="item" javaType="com.cs2trade.entity.Item">
             <id property="id" column="item_pk"/>
             <result property="name" column="item_name"/>
+            <result property="nameCn" column="item_name_cn"/>
             <result property="iconUrl" column="item_icon_url"/>
-            <result property="marketPrice" column="item_market_price"/>
+            <result property="buffPrice" column="item_buff_price"/>
+            <result property="rarity" column="item_rarity"/>
         </association>
         <association property="news" javaType="com.cs2trade.entity.News">
             <id property="id" column="news_pk"/>
@@ -22,14 +24,15 @@
             <result property="category" column="news_category"/>
             <result property="author" column="news_author"/>
             <result property="views" column="news_views"/>
+            <result property="createdAt" column="news_created_at"/>
         </association>
     </resultMap>
 
     <select id="getFavorites" resultMap="FavoriteMap">
         SELECT f.id, f.user_id, f.item_id, f.news_id, f.type, f.created_at,
-               i.id as item_pk, i.name as item_name, i.icon_url as item_icon_url, i.buff_price as item_market_price,
+               i.id as item_pk, i.name as item_name, i.name_cn as item_name_cn, i.icon_url as item_icon_url, i.buff_price as item_buff_price, i.rarity as item_rarity,
                n.id as news_pk, n.title as news_title, n.summary as news_summary, n.cover_image as news_cover_image, 
-               n.category as news_category, n.author as news_author, n.views as news_views
+               n.category as news_category, n.author as news_author, n.views as news_views, n.created_at as news_created_at
         FROM sys_favorite f
         LEFT JOIN item i ON f.item_id = i.id AND f.type = 1
         LEFT JOIN sys_news n ON f.news_id = n.id AND f.type = 2

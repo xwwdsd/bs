@@ -88,6 +88,51 @@ public class TradeOrder implements Serializable {
     private String tradeOfferUrl;
 
     /**
+     * 机器人交付阶段
+     */
+    private String deliveryStage;
+
+    /**
+     * Steam 报价状态码
+     */
+    private Integer steamOfferState;
+
+    /**
+     * Steam 报价状态文本
+     */
+    private String steamOfferStateText;
+
+    /**
+     * 机器人报价发出时间
+     */
+    private LocalDateTime botOfferDispatchedAt;
+
+    /**
+     * 卖家确认报价时间
+     */
+    private LocalDateTime sellerOfferConfirmedAt;
+
+    /**
+     * 最近一次检查报价时间
+     */
+    private LocalDateTime lastOfferCheckAt;
+
+    /**
+     * 检测到对方库存出现饰品的时间
+     */
+    private LocalDateTime inventoryVerifiedAt;
+
+    /**
+     * 机器人确认收到饰品时间
+     */
+    private LocalDateTime botReceivedAt;
+
+    /**
+     * 监控错误信息
+     */
+    private String monitorErrorMessage;
+
+    /**
      * 付款时间
      */
     private LocalDateTime paidAt;
@@ -130,6 +175,11 @@ public class TradeOrder implements Serializable {
     private User buyer;
 
     /**
+     * 关联的库存快照
+     */
+    private UserInventory inventory;
+
+    /**
      * 关联的卖家信息
      */
     private User seller;
@@ -156,6 +206,12 @@ public class TradeOrder implements Serializable {
 
     /** 状态 - 纠纷中 */
     public static final int STATUS_DISPUTE = 6;
+
+    public static final String DELIVERY_STAGE_NONE = "NONE";
+    public static final String DELIVERY_STAGE_SELLER_OFFER_SENT = "SELLER_OFFER_SENT";
+    public static final String DELIVERY_STAGE_SELLER_CONFIRMED = "SELLER_CONFIRMED";
+    public static final String DELIVERY_STAGE_OFFER_ACCEPTED = "OFFER_ACCEPTED";
+    public static final String DELIVERY_STAGE_BUYER_RECEIVED = "BUYER_RECEIVED";
 
     /**
      * 获取状态文本

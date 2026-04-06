@@ -4,28 +4,28 @@
 # 技术栈: Spring Boot + MyBatis + MySQL + Redis
 # ===================================================================
 
-# Spring应用基础配置
+# Spring 应用基础配置
 spring:
   application:
     # 应用名称
     name: cs2trade-backend
-  
-  # 数据源配置 - MySQL数据库
+
+  # MySQL 数据源配置
   datasource:
-    # 数据库连接URL
+    # 数据库连接 URL
     url: jdbc:mysql://localhost:3306/cs2trade?useUnicode=true&characterEncoding=utf-8&useSSL=false&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true
     # 数据库用户名
-    username: ${DB_USERNAME}
+    username: root
     # 数据库密码
-    password: ${DB_PASSWORD}
-    # 数据库驱动类名
+    password: 123456
+    # 数据库驱动
     driver-class-name: com.mysql.cj.jdbc.Driver
-  
-  # SQL 初始化 - 已禁用
+
+  # SQL 初始化配置（禁用）
   sql:
     init:
       mode: never
-    # Druid连接池配置
+    # Druid 连接池配置
     type: com.alibaba.druid.pool.DruidDataSource
     druid:
       # 初始化连接数
@@ -34,50 +34,50 @@ spring:
       min-idle: 5
       # 最大连接池数量
       max-active: 20
-      # 获取连接等待超时时间(毫秒)
+      # 获取连接等待超时时间（毫秒）
       max-wait: 60000
-      # 检测间隔时间(毫秒)
+      # 检测间隔时间（毫秒）
       time-between-eviction-runs-millis: 60000
-      # 连接在池中最小生存时间(毫秒)
+      # 连接在池中最小生存时间（毫秒）
       min-evictable-idle-time-millis: 300000
-      # 连接在池中最大生存时间(毫秒)
+      # 连接在池中最大生存时间（毫秒）
       max-evictable-idle-time-millis: 900000
-      # 检测连接是否有效的SQL
+      # 检测连接是否有效的 SQL
       validation-query: SELECT 1 FROM DUAL
-      # 申请连接时执行检测
+      # 空闲时检测连接
       test-while-idle: true
-      # 申请连接时执行检测
+      # 获取连接时不检测
       test-on-borrow: false
-      # 归还连接时执行检测
+      # 归还连接时不检测
       test-on-return: false
-      # 是否缓存PreparedStatement
+      # 是否缓存 PreparedStatement
       pool-prepared-statements: true
-      # 最大缓存PreparedStatement数量
+      # 单连接最大缓存 PreparedStatement 数量
       max-pool-prepared-statement-per-connection-size: 20
-      # 过滤器配置 - 监控统计和防SQL注入
+      # 过滤器配置：监控统计和防 SQL 注入
       filters: stat,wall,slf4j
-      # 合并SQL统计
+      # 合并 SQL 统计
       connection-properties: druid.stat.mergeSql=true;druid.stat.slowSqlMillis=5000
-  
-  # Redis配置
+
+  # Redis 配置
   data:
     redis:
-      # Redis服务器地址
+      # Redis 服务器地址
       host: localhost
-      # Redis服务器端口
+      # Redis 服务器端口
       port: 6379
-      # Redis数据库索引(默认为0)
+      # Redis 数据库索引（默认 0）
       database: 0
-      # 连接超时时间(毫秒)
+      # 连接超时时间（毫秒）
       timeout: 3000
-      # 密码(如果没有密码留空)
+      # 密码（如果没有密码留空）
       password:
-      # Lettuce连接池配置
+      # Lettuce 连接池配置
       lettuce:
         pool:
           # 最大连接数
           max-active: 8
-          # 最大阻塞等待时间(毫秒)
+          # 最大阻塞等待时间（毫秒）
           max-wait: -1
           # 最大空闲连接
           max-idle: 8
@@ -98,33 +98,33 @@ spring:
             enable: true
             required: true
 
-  # Servlet配置
+  # Servlet 配置
   servlet:
     multipart:
-      # 单个文件最大大小(10MB)
+      # 单个文件最大大小（10MB）
       max-file-size: 10MB
-      # 整个请求最大大小(100MB)
+      # 整个请求最大大小（100MB）
       max-request-size: 100MB
 
-# MyBatis配置
+# MyBatis 配置
 mybatis:
-  # Mapper XML文件位置
+  # Mapper XML 文件位置
   mapper-locations: classpath:mapper/*.xml
   # 实体类包扫描路径
   type-aliases-package: com.cs2trade.entity
-  # MyBatis全局配置
+  # MyBatis 全局配置
   configuration:
     # 开启驼峰命名自动映射
     map-underscore-to-camel-case: true
     # 使用列标签代替列名
     use-column-label: true
-    # 允许JDBC支持自动生成主键
+    # 允许 JDBC 自动生成主键
     use-generated-keys: true
     # 默认执行器类型
     default-executor-type: simple
-    # 指定MyBatis增加到日志名称的前缀
+    # 默认语句超时时间（秒）
     default-statement-timeout: 25000
-    # 配置日志实现
+    # 日志实现
     log-impl: org.apache.ibatis.logging.stdout.StdOutImpl
 
 # 日志配置
@@ -132,9 +132,9 @@ logging:
   level:
     # 根日志级别
     root: info
-    # Spring Security日志级别
+    # Spring Security 日志级别
     org.springframework.security: debug
-    # MyBatis日志级别
+    # MyBatis 日志级别
     com.cs2trade.mapper: debug
   pattern:
     # 控制台日志格式
@@ -150,44 +150,44 @@ server:
   servlet:
     # 上下文路径
     context-path: /api
-  # 编码配置
+  # Tomcat 编码配置
   tomcat:
     uri-encoding: UTF-8
 
-# JWT配置
+# JWT 配置
 jwt:
-  # JWT密钥(生产环境请使用更复杂的密钥)
-  secret: ${JWT_SECRET}
-  # Access Token过期时间(2小时，单位:毫秒)
+  # JWT 密钥（生产环境请使用更复杂的密钥）
+  secret: my-secret-key-for-jwt-token-generation
+  # Access Token 过期时间（2小时，单位：毫秒）
   access-token-expiration: 7200000
-  # Refresh Token过期时间(7天，单位:毫秒)
+  # Refresh Token 过期时间（7天，单位：毫秒）
   refresh-token-expiration: 604800000
-  # Token请求头名称
+  # Token 请求头名称
   header: Authorization
-  # Token前缀
+  # Token 前缀
   prefix: Bearer
 
 # 应用自定义配置
 app:
-  # 前端URL
+  # 前端 URL
   frontend-url: http://localhost:3000
   # 验证码配置
   captcha:
     # 验证码长度
     length: 6
-    # 验证码有效期(分钟)
+    # 验证码有效期（分钟）
     expire-minutes: 5
-  
+
   # 文件上传配置
   upload:
     # 上传文件存储路径
     path: ./uploads/
     # 允许的文件类型
     allowed-types: jpg,jpeg,png,gif,webp
-    # 最大文件大小(MB)
+    # 最大文件大小（MB）
     max-size: 10
-  
-  # CORS跨域配置
+
+  # CORS 跨域配置
   cors:
     # 允许的源
     allowed-origins: "*"
@@ -197,22 +197,39 @@ app:
     allowed-headers: "*"
     # 是否允许携带凭证
     allow-credentials: false
-    # 预检请求缓存时间(秒)
+    # 预检请求缓存时间（秒）
     max-age: 3600
 
-# Steam配置
+# Steam 配置
 steam:
   # Steam Web API Key
-  # 申请地址: https://steamcommunity.com/dev/apikey
-  api-key: ${STEAM_API_KEY}
-  # 应用域名，用于Steam OpenID回调
+  # 申请地址：https://steamcommunity.com/dev/apikey
+  api-key: 782D49AFE6671DE7F9E5FB348BECBEA8
+  bot:
+    enabled: false
+    api-key: 782D49AFE6671DE7F9E5FB348BECBEA8
+    steam-id: ""
+    poll-interval-millis: 60000
+    batch-size: 20
+  # 应用域名，用于 Steam OpenID 回调
   realm: http://localhost:8080
-  # 代理配置 (如果在无法直接访问Steam的地区，请开启代理)
+  # 代理配置（如果在无法直接访问 Steam 的地区，请开启代理）
   proxy:
-    enabled: ${STEAM_PROXY_ENABLED:true}
-    host: ${STEAM_PROXY_HOST:127.0.0.1}
-    port: ${STEAM_PROXY_PORT:7897}
+    enabled: true
+    host: 127.0.0.1
+    port: 7897
     type: HTTP # HTTP 或 SOCKS
+  market-sync:
+    page-size: 100
+    max-pages-per-run: 200
+    rate-limit-backoff-seconds:
+      - 60
+      - 120
+      - 240
+      - 300
+      - 300
+    auto-retry-budget-minutes: 30
+    page-delay-millis: 5000
   cookie:
     steam-login-secure: ""
 
@@ -222,7 +239,7 @@ pagehelper:
   helper-dialect: mysql
   # 合理化分页参数
   reasonable: true
-  # 支持通过Mapper接口参数传递分页参数
+  # 支持通过 Mapper 接口参数传递分页参数
   support-methods-arguments: true
   # 分页参数默认值
   params: count=countSql

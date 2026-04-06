@@ -151,6 +151,70 @@ public interface TradeOrderMapper {
     @Select("SELECT * FROM trade_order WHERE status = #{status} ORDER BY created_at DESC")
     List<TradeOrder> selectByStatus(@Param("status") Integer status);
 
+    @Select("""
+            SELECT *
+            FROM trade_order
+            WHERE status = #{status}
+              AND trade_offer_id IS NOT NULL
+            ORDER BY updated_at ASC
+            LIMIT #{limit}
+            """)
+    List<TradeOrder> selectByStatusForMonitoring(@Param("status") Integer status, @Param("limit") Integer limit);
+
+    @Update("""
+            UPDATE trade_order
+            SET status = #{status},
+                trade_offer_id = #{tradeOfferId},
+                trade_offer_url = #{tradeOfferUrl},
+                delivery_stage = #{deliveryStage},
+                bot_offer_dispatched_at = NOW(),
+                seller_offer_confirmed_at = NOW(),
+                steam_offer_state = NULL,
+                steam_offer_state_text = NULL,
+                last_offer_check_at = NULL,
+                inventory_verified_at = NULL,
+                bot_received_at = NULL,
+                monitor_error_message = NULL,
+                sent_at = NOW(),
+                updated_at = NOW()
+            WHERE id = #{id}
+            """)
+    int registerBotOffer(@Param("id") Long id,
+                         @Param("status") Integer status,
+                         @Param("tradeOfferId") String tradeOfferId,
+                         @Param("tradeOfferUrl") String tradeOfferUrl,
+                         @Param("deliveryStage") String deliveryStage);
+
+    @Update("""
+            UPDATE trade_order
+            SET seller_offer_confirmed_at = NOW(),
+                delivery_stage = #{deliveryStage},
+                monitor_error_message = NULL,
+                updated_at = NOW()
+            WHERE id = #{id}
+            """)
+    int confirmSellerBotOffer(@Param("id") Long id, @Param("deliveryStage") String deliveryStage);
+
+    @Update("""
+            <script>
+            UPDATE trade_order
+            <set>
+                <if test='status != null'>status = #{status},</if>
+                <if test='steamOfferState != null'>steam_offer_state = #{steamOfferState},</if>
+                <if test='steamOfferStateText != null'>steam_offer_state_text = #{steamOfferStateText},</if>
+                <if test='deliveryStage != null'>delivery_stage = #{deliveryStage},</if>
+                <if test='lastOfferCheckAt != null'>last_offer_check_at = #{lastOfferCheckAt},</if>
+                <if test='inventoryVerifiedAt != null'>inventory_verified_at = #{inventoryVerifiedAt},</if>
+                <if test='botReceivedAt != null'>bot_received_at = #{botReceivedAt},</if>
+                <if test='completedAt != null'>completed_at = #{completedAt},</if>
+                monitor_error_message = #{monitorErrorMessage},
+                updated_at = NOW()
+            </set>
+            WHERE id = #{id}
+            </script>
+            """)
+    int updateBotTracking(TradeOrder order);
+
     /**
      * 删除指定状态的交易订单
      *

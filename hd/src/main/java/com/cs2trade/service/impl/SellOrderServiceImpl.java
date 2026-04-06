@@ -8,6 +8,7 @@ import com.cs2trade.mapper.ItemMapper;
 import com.cs2trade.mapper.SellOrderMapper;
 import com.cs2trade.mapper.UserInventoryMapper;
 import com.cs2trade.mapper.UserMapper;
+import com.cs2trade.service.InspectMetadataService;
 import com.cs2trade.service.SellOrderService;
 import com.cs2trade.service.SteamInventoryService;
 import lombok.RequiredArgsConstructor;
@@ -36,6 +37,7 @@ public class SellOrderServiceImpl implements SellOrderService {
     private final UserMapper userMapper;
     private final ItemMapper itemMapper;
     private final SteamInventoryService steamInventoryService;
+    private final InspectMetadataService inspectMetadataService;
 
     @Override
     @Transactional(rollbackFor = Exception.class)
@@ -270,6 +272,7 @@ public class SellOrderServiceImpl implements SellOrderService {
         if (order.getInventoryId() != null) {
             try {
                 UserInventory inventory = userInventoryMapper.selectById(order.getInventoryId());
+                inspectMetadataService.repairAndPersist(inventory);
                 order.setInventory(inventory);
             } catch (Exception e) {
                 log.warn("获取库存信息失败: inventoryId={}", order.getInventoryId());

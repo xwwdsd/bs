@@ -11,7 +11,7 @@ export function getMessages(type, page = 1, size = 20) {
 
 export function markAsRead(ids) {
   if (Array.isArray(ids)) {
-    return request.post('/v1/messages/batch-read', { ids })
+    return request.post('/v1/messages/batch-read', ids)
   }
   return request.post(`/v1/messages/${ids}/read`)
 }
@@ -21,9 +21,21 @@ export function markAllRead(type) {
 }
 
 export function deleteMessages(ids) {
-  return request.post('/v1/messages/batch-delete', { ids })
+  return request.post('/v1/messages/batch-delete', ids)
 }
 
 export function getUnreadCount() {
   return request.get('/v1/messages/unread-count')
+}
+
+export function createBargain(data) {
+  return request.post('/v1/messages/bargains', data)
+}
+
+export function acceptBargain(id) {
+  return request.post(`/v1/messages/${id}/bargain/accept`)
+}
+
+export function rejectBargain(id) {
+  return request.post(`/v1/messages/${id}/bargain/reject`)
 }

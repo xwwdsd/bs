@@ -11,6 +11,7 @@ import java.util.List;
  */
 @Mapper
 public interface MessageMapper {
+    Message selectById(@Param("id") Long id);
     
     /**
      * 获取消息列表
@@ -27,6 +28,13 @@ public interface MessageMapper {
      * 创建消息
      */
     void createMessage(Message message);
+    int countPendingBargains(@Param("senderId") Long senderId, @Param("relatedSellOrderId") Long relatedSellOrderId);
+    void updateBargainStatus(@Param("id") Long id,
+                             @Param("subType") Integer subType,
+                             @Param("status") Integer status,
+                             @Param("relatedOrderNo") String relatedOrderNo,
+                             @Param("content") String content,
+                             @Param("title") String title);
     
     /**
      * 标记单条消息已读

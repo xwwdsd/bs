@@ -11,12 +11,17 @@
         <result property="status" column="status"/>
         <result property="relatedOrderNo" column="related_order_no"/>
         <result property="relatedItemId" column="related_item_id"/>
+        <result property="relatedSellOrderId" column="related_sell_order_id"/>
         <result property="itemName" column="item_name"/>
         <result property="bargainPrice" column="bargain_price"/>
         <result property="senderId" column="sender_id"/>
         <result property="senderName" column="sender_name"/>
         <result property="createdAt" column="created_at"/>
     </resultMap>
+
+    <select id="selectById" resultMap="MessageMap">
+        SELECT * FROM sys_message WHERE id = #{id}
+    </select>
 
     <select id="getMessages" resultMap="MessageMap">
         SELECT * FROM sys_message 
@@ -39,14 +44,33 @@
     <insert id="createMessage" useGeneratedKeys="true" keyProperty="id">
         INSERT INTO sys_message (
             user_id, title, content, type, sub_type, status,
-            related_order_no, related_item_id, item_name, bargain_price,
+            related_order_no, related_item_id, related_sell_order_id, item_name, bargain_price,
             sender_id, sender_name, created_at
         ) VALUES (
             #{userId}, #{title}, #{content}, #{type}, #{subType}, 0,
-            #{relatedOrderNo}, #{relatedItemId}, #{itemName}, #{bargainPrice},
+            #{relatedOrderNo}, #{relatedItemId}, #{relatedSellOrderId}, #{itemName}, #{bargainPrice},
             #{senderId}, #{senderName}, NOW()
         )
     </insert>
+
+    <select id="countPendingBargains" resultType="int">
+        SELECT COUNT(*)
+        FROM sys_message
+        WHERE type = 3
+          AND sub_type = 1
+          AND sender_id = #{senderId}
+          AND related_sell_order_id = #{relatedSellOrderId}
+    </select>
+
+    <update id="updateBargainStatus">
+        UPDATE sys_message
+        SET sub_type = #{subType},
+            status = #{status},
+            related_order_no = #{relatedOrderNo},
+            content = #{content},
+            title = #{title}
+        WHERE id = #{id}
+    </update>
 
     <update id="markAsRead">
         UPDATE sys_message SET status = 1 WHERE id = #{id}

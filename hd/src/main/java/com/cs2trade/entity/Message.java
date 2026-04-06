@@ -12,6 +12,12 @@ import java.time.LocalDateTime;
 @Data
 public class Message implements Serializable {
     private static final long serialVersionUID = 1L;
+    public static final int TYPE_TRADE = 1;
+    public static final int TYPE_SYSTEM = 2;
+    public static final int TYPE_BARGAIN = 3;
+    public static final int BARGAIN_STATUS_PENDING = 1;
+    public static final int BARGAIN_STATUS_ACCEPTED = 2;
+    public static final int BARGAIN_STATUS_REJECTED = 3;
 
     private Long id;
     private Long userId;
@@ -47,6 +53,7 @@ public class Message implements Serializable {
      * 关联商品ID
      */
     private Long relatedItemId;
+    private Long relatedSellOrderId;
     
     /**
      * 关联商品名称

@@ -22,8 +22,12 @@ public class SteamSyncTask {
     private Integer remainingPages;
     private Integer remainingItems;
     private Integer maxPagesLimit;
+    private Integer pageSize;
+    private Integer retryCount;
+    private Integer lastHttpStatus;
     private Integer failedPage;
     private String errorMessage;
+    private LocalDateTime cooldownUntil;
     private LocalDateTime startedAt;
     private LocalDateTime finishedAt;
     private LocalDateTime createdAt;

@@ -21,8 +21,12 @@
         <result column="remaining_pages" property="remainingPages"/>
         <result column="remaining_items" property="remainingItems"/>
         <result column="max_pages_limit" property="maxPagesLimit"/>
+        <result column="page_size" property="pageSize"/>
+        <result column="retry_count" property="retryCount"/>
+        <result column="last_http_status" property="lastHttpStatus"/>
         <result column="failed_page" property="failedPage"/>
         <result column="error_message" property="errorMessage"/>
+        <result column="cooldown_until" property="cooldownUntil"/>
         <result column="started_at" property="startedAt"/>
         <result column="finished_at" property="finishedAt"/>
         <result column="created_at" property="createdAt"/>
@@ -33,11 +37,13 @@
         INSERT INTO steam_sync_task (
             task_type, status, total_count, total_pages, planned_pages, synced_pages, current_page,
             processed_count, saved_count, updated_count, skipped_count, remaining_pages, remaining_items,
-            max_pages_limit, failed_page, error_message, started_at, finished_at, created_at, updated_at
+            max_pages_limit, page_size, retry_count, last_http_status, failed_page, error_message,
+            cooldown_until, started_at, finished_at, created_at, updated_at
         ) VALUES (
             #{taskType}, #{status}, #{totalCount}, #{totalPages}, #{plannedPages}, #{syncedPages}, #{currentPage},
             #{processedCount}, #{savedCount}, #{updatedCount}, #{skippedCount}, #{remainingPages}, #{remainingItems},
-            #{maxPagesLimit}, #{failedPage}, #{errorMessage}, #{startedAt}, #{finishedAt}, NOW(), NOW()
+            #{maxPagesLimit}, #{pageSize}, #{retryCount}, #{lastHttpStatus}, #{failedPage}, #{errorMessage},
+            #{cooldownUntil}, #{startedAt}, #{finishedAt}, NOW(), NOW()
         )
     </insert>
 
@@ -58,8 +64,12 @@
             <if test="remainingPages != null">remaining_pages = #{remainingPages},</if>
             <if test="remainingItems != null">remaining_items = #{remainingItems},</if>
             <if test="maxPagesLimit != null">max_pages_limit = #{maxPagesLimit},</if>
+            <if test="pageSize != null">page_size = #{pageSize},</if>
+            <if test="retryCount != null">retry_count = #{retryCount},</if>
+            last_http_status = #{lastHttpStatus},
             failed_page = #{failedPage},
             error_message = #{errorMessage},
+            cooldown_until = #{cooldownUntil},
             <if test="startedAt != null">started_at = #{startedAt},</if>
             finished_at = #{finishedAt},
             updated_at = NOW()

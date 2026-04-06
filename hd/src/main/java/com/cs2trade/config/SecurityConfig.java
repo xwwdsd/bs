@@ -59,6 +59,9 @@ public class SecurityConfig {
                         .requestMatchers("/v1/news/my").authenticated()
                         .requestMatchers(HttpMethod.GET, "/v1/news/**").permitAll()
                         .requestMatchers(HttpMethod.GET, "/v1/items/**").permitAll()
+                        .requestMatchers(HttpMethod.GET, "/v1/sell-orders/market").permitAll()
+                        .requestMatchers(HttpMethod.GET, "/v1/sell-orders/*").permitAll()
+                        .requestMatchers(HttpMethod.GET, "/v1/sell-orders/item/**").permitAll()
                         .requestMatchers(HttpMethod.GET, "/v1/player-shows/**").permitAll()
                         .requestMatchers(HttpMethod.GET, "/v1/banners/**").permitAll()
 

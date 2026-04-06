@@ -8,8 +8,11 @@ import com.cs2trade.entity.Item;
 import com.cs2trade.mapper.UserInventoryMapper;
 import com.cs2trade.mapper.UserMapper;
 import com.cs2trade.mapper.ItemMapper;
+import com.cs2trade.service.InspectMetadataService;
 import com.cs2trade.service.SteamInventoryService;
+import com.cs2trade.util.InventoryExteriorResolver;
 import com.cs2trade.util.SteamApiClient;
+import com.cs2trade.util.SteamInspectLinkResolver;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -43,6 +46,7 @@ public class SteamInventoryServiceImpl implements SteamInventoryService {
     private final UserMapper userMapper;
     private final ItemMapper itemMapper;
     private final SteamApiClient steamApiClient;
+    private final InspectMetadataService inspectMetadataService;
 
     // Steam物品图片URL前缀
     private static final String STEAM_IMAGE_URL = "https://steamcommunity-a.akamaihd.net/economy/image/";
@@ -98,7 +102,7 @@ public class SteamInventoryServiceImpl implements SteamInventoryService {
             log.info("Steam 库存同步完成：userId={}, steamTotal={}, saved={}, updated={}, clearedSnapshot={}",
                     userId, inventoryList.size(), savedCount, updatedCount, deletedCount);
 
-            return buildPreferredInventoryView(userId, false);
+            return buildSyncedInventoryView(inventoryList, existingMap, false);
 
         } catch (Exception e) {
             log.error("同步Steam库存失败: userId={}, error={}", userId, e.getMessage());
@@ -210,6 +214,7 @@ public class SteamInventoryServiceImpl implements SteamInventoryService {
         // 解析库存数据
         JSONArray assets = json.getJSONArray("assets");
         JSONArray descriptions = json.getJSONArray("descriptions");
+        JSONArray assetProperties = json.getJSONArray("asset_properties");
 
         if (assets == null || descriptions == null) {
             log.warn("Steam库存为空或无法访问: steamId={}", steamId);
@@ -226,6 +231,8 @@ public class SteamInventoryServiceImpl implements SteamInventoryService {
             descriptionMap.put(key, desc);
         }
 
+        Map<String, JSONArray> assetPropertiesMap = buildAssetPropertiesMap(assetProperties);
+
         // 获取所有饰品用于匹配
         List<Item> allItems = itemMapper.selectAllActive();
         Map<String, Item> itemMap = allItems.stream()
@@ -238,6 +245,10 @@ public class SteamInventoryServiceImpl implements SteamInventoryService {
         // 处理每个库存物品
         for (int i = 0; i < assets.size(); i++) {
             JSONObject asset = assets.getJSONObject(i);
+            JSONArray properties = assetPropertiesMap.get(asset.getString("assetid"));
+            if (properties != null && !properties.isEmpty()) {
+                asset.put("asset_properties", properties);
+            }
 
             String classId = asset.getString("classid");
             String instanceId = asset.getString("instanceid");
@@ -263,6 +274,28 @@ public class SteamInventoryServiceImpl implements SteamInventoryService {
     /**
      * 解析单个库存物品
      */
+    private Map<String, JSONArray> buildAssetPropertiesMap(JSONArray assetProperties) {
+        Map<String, JSONArray> assetPropertiesMap = new HashMap<>();
+        if (assetProperties == null) {
+            return assetPropertiesMap;
+        }
+
+        for (int i = 0; i < assetProperties.size(); i++) {
+            JSONObject wrapper = assetProperties.getJSONObject(i);
+            if (wrapper == null) {
+                continue;
+            }
+
+            String assetId = wrapper.getString("assetid");
+            JSONArray properties = wrapper.getJSONArray("asset_properties");
+            if (assetId != null && properties != null && !properties.isEmpty()) {
+                assetPropertiesMap.put(assetId, properties);
+            }
+        }
+
+        return assetPropertiesMap;
+    }
+
     private UserInventory parseInventoryItem(JSONObject asset, JSONObject description,
                                              Long userId, Map<String, Item> itemMap) {
         try {
@@ -303,9 +336,17 @@ public class SteamInventoryServiceImpl implements SteamInventoryService {
             Item matchedItem = matchItem(inventory.getName(), itemMap);
             if (matchedItem != null) {
                 inventory.setItemId(matchedItem.getId());
+                inventory.setItem(matchedItem);
                 inventory.setMarketPrice(matchedItem.getBuffPrice());
-                inventory.setRarity(firstNonBlank(matchedItem.getQuality(), matchedItem.getRarity()));
+                inventory.setRarity(normalizeRarity(firstNonBlank(matchedItem.getQuality(), matchedItem.getRarity(), inventory.getRarity())));
                 inventory.setType(detectItemType(inventory.getName()));
+                inventory.setExterior(resolveExterior(
+                        inventory.getPaintWear(),
+                        inventory.getExterior(),
+                        inventory.getName(),
+                        matchedItem.getNameCn(),
+                        matchedItem.getName()
+                ));
 
                 if ((inventory.getInspectUrl() == null || inventory.getInspectUrl().isBlank())
                         && matchedItem.getInspectLinkTemplate() != null
@@ -316,12 +357,21 @@ public class SteamInventoryServiceImpl implements SteamInventoryService {
                 // 未匹配到平台饰品，创建或获取未知饰品
                 Item unknownItem = getOrCreateUnknownItem();
                 inventory.setItemId(unknownItem.getId());
+                inventory.setItem(unknownItem);
                 inventory.setMarketPrice(BigDecimal.ZERO);
                 inventory.setType(detectItemType(inventory.getName()));
                 log.debug("未匹配到平台饰品: name={}, 使用未知饰品id={}", inventory.getName(), unknownItem.getId());
             }
 
             // 设置获取时间
+            inspectMetadataService.applyDecodedInspectMetadata(inventory, true);
+            inventory.setExterior(resolveExterior(
+                    inventory.getPaintWear(),
+                    inventory.getExterior(),
+                    inventory.getName(),
+                    matchedItem != null ? matchedItem.getNameCn() : null,
+                    matchedItem != null ? matchedItem.getName() : null
+            ));
             inventory.setAcquiredAt(LocalDateTime.now());
             inventory.setCreatedAt(LocalDateTime.now());
             inventory.setUpdatedAt(LocalDateTime.now());
@@ -355,24 +405,24 @@ public class SteamInventoryServiceImpl implements SteamInventoryService {
             }
         }
 
-        // 获取磨损值 (从fraudwarnings或descriptions)
+        // 获取磨损值 (从 fraudwarnings 或 descriptions)
         JSONArray fraudWarnings = description.getJSONArray("fraudwarnings");
         if (fraudWarnings != null && !fraudWarnings.isEmpty()) {
             for (int i = 0; i < fraudWarnings.size(); i++) {
                 String warning = fraudWarnings.getString(i);
-                if (warning.contains("磨损")) {
+                if (warning.contains("磨损") || warning.toLowerCase().contains("wear")) {
                     parseWearValue(warning, inventory);
                 }
             }
         }
 
-        // 从descriptions中查找磨损
+        // 从 descriptions 中查找磨损
         JSONArray descriptions = description.getJSONArray("descriptions");
         if (descriptions != null) {
             for (int i = 0; i < descriptions.size(); i++) {
                 JSONObject desc = descriptions.getJSONObject(i);
                 String value = desc.getString("value");
-                if (value != null && value.contains("磨损")) {
+                if (value != null && (value.contains("磨损") || value.toLowerCase().contains("wear"))) {
                     parseWearValue(value, inventory);
                 }
             }
@@ -422,11 +472,15 @@ public class SteamInventoryServiceImpl implements SteamInventoryService {
                 if ("Exterior".equalsIgnoreCase(category)
                         || "外观".equals(localizedCategory)
                         || "exterior".equalsIgnoreCase(internalName)) {
-                    inventory.setExterior(normalizeExterior(firstNonBlank(internalName, tagName, localizedTagName)));
+                    inventory.setExterior(resolveExterior(
+                            inventory.getPaintWear(),
+                            firstNonBlank(localizedTagName, tagName, internalName),
+                            inventory.getName()
+                    ));
                 }
 
                 if ("Rarity".equalsIgnoreCase(category) || "品质".equals(localizedCategory)) {
-                    inventory.setRarity(normalizeRarity(firstNonBlank(internalName, tagName, localizedTagName)));
+                    inventory.setRarity(normalizeRarity(firstNonBlank(localizedTagName, tagName, internalName)));
                 }
             }
         }
@@ -435,8 +489,9 @@ public class SteamInventoryServiceImpl implements SteamInventoryService {
         collectTextValues(description.getJSONArray("fraudwarnings"), metadataTexts);
         collectDescriptionValues(description.getJSONArray("descriptions"), metadataTexts);
         collectDescriptionValues(description.getJSONArray("owner_descriptions"), metadataTexts);
-        collectActionLinks(description.getJSONArray("actions"), metadataTexts, inventory);
-        collectActionLinks(description.getJSONArray("market_actions"), metadataTexts, inventory);
+        applyInspectLink(asset, description, inventory);
+        collectActionLinks(description.getJSONArray("actions"), metadataTexts, inventory, asset);
+        collectActionLinks(description.getJSONArray("market_actions"), metadataTexts, inventory, asset);
 
         inventory.setDescription(buildDescription(metadataTexts));
         inventory.setType(detectItemType(inventory.getName()));
@@ -447,6 +502,13 @@ public class SteamInventoryServiceImpl implements SteamInventoryService {
             parsePaintSeed(text, inventory);
             parsePaintIndex(text, inventory);
         }
+
+        if (containsSteamTradeRestriction(metadataTexts)
+                && (inventory.getMarketableReason() == null || "可出售".equals(inventory.getMarketableReason()))) {
+            inventory.setMarketableReason("该物品存在 Steam 交易限制");
+        }
+
+        inventory.setExterior(resolveExterior(inventory.getPaintWear(), inventory.getExterior(), inventory.getName()));
 
         if ((inventory.getInspectUrl() == null || inventory.getInspectUrl().isBlank()) && asset != null) {
             inventory.setInspectUrl(buildInspectUrl(null, inventory));
@@ -537,7 +599,57 @@ public class SteamInventoryServiceImpl implements SteamInventoryService {
         }
     }
 
-    private void collectActionLinks(JSONArray source, List<String> out, UserInventory inventory) {
+    private void applyInspectLink(JSONObject asset, JSONObject description, UserInventory inventory) {
+        if (inventory.getInspectUrl() != null && !inventory.getInspectUrl().isBlank()) {
+            return;
+        }
+
+        String inspectLink = firstNonBlank(
+                resolveInspectLink(description != null ? description.getString("inspect_link") : null, asset),
+                findInspectLink(description != null ? description.getJSONArray("actions") : null, asset),
+                findInspectLink(description != null ? description.getJSONArray("market_actions") : null, asset),
+                findInspectLink(asset != null ? asset.getJSONArray("actions") : null, asset),
+                findInspectLink(asset != null ? asset.getJSONArray("market_actions") : null, asset)
+        );
+
+        if (inspectLink != null) {
+            inventory.setInspectUrl(inspectLink);
+        }
+    }
+
+    private String findInspectLink(JSONArray source, JSONObject asset) {
+        if (source == null) {
+            return null;
+        }
+
+        for (int i = 0; i < source.size(); i++) {
+            JSONObject entry = source.getJSONObject(i);
+            if (entry == null) {
+                continue;
+            }
+
+            String resolvedLink = resolveInspectLink(entry.getString("link"), asset);
+            if (resolvedLink != null) {
+                return resolvedLink;
+            }
+        }
+
+        return null;
+    }
+
+    private String resolveInspectLink(String link, JSONObject asset) {
+        String resolved = SteamInspectLinkResolver.resolve(
+                link,
+                asset != null ? asset.getJSONArray("asset_properties") : null
+        );
+        if (resolved == null || resolved.isBlank()) {
+            return null;
+        }
+
+        return resolved.contains("csgo_econ_action_preview") ? resolved : null;
+    }
+
+    private void collectActionLinks(JSONArray source, List<String> out, UserInventory inventory, JSONObject asset) {
         if (source == null) {
             return;
         }
@@ -549,9 +661,10 @@ public class SteamInventoryServiceImpl implements SteamInventoryService {
 
             String link = entry.getString("link");
             if (link != null && !link.isBlank()) {
-                out.add(link);
-                if (inventory.getInspectUrl() == null && link.contains("inspect")) {
-                    inventory.setInspectUrl(link);
+                String resolvedLink = resolveInspectLink(link, asset);
+                out.add(resolvedLink != null ? resolvedLink : link);
+                if ((inventory.getInspectUrl() == null || inventory.getInspectUrl().isBlank()) && resolvedLink != null) {
+                    inventory.setInspectUrl(resolvedLink);
                 }
             }
         }
@@ -590,12 +703,72 @@ public class SteamInventoryServiceImpl implements SteamInventoryService {
             return "该物品当前不可上架出售";
         }
 
-        Integer restrictionDays = description.getInteger("market_tradable_restriction");
-        if (restrictionDays != null && restrictionDays > 0) {
+        if (containsSteamTradeRestriction(description)) {
             return "该物品存在 Steam 交易限制";
         }
 
         return "可出售";
+    }
+
+    private boolean containsSteamTradeRestriction(JSONObject description) {
+        if (description == null) {
+            return false;
+        }
+
+        List<String> metadataTexts = new ArrayList<>();
+        collectTextValues(description.getJSONArray("fraudwarnings"), metadataTexts);
+        collectDescriptionValues(description.getJSONArray("owner_descriptions"), metadataTexts);
+        return containsSteamTradeRestriction(metadataTexts);
+    }
+
+    private boolean containsSteamTradeRestriction(List<String> metadataTexts) {
+        if (metadataTexts == null || metadataTexts.isEmpty()) {
+            return false;
+        }
+
+        for (String text : metadataTexts) {
+            String normalized = stripHtml(text);
+            if (normalized == null || normalized.isBlank()) {
+                continue;
+            }
+
+            String lower = normalized.toLowerCase();
+            if (containsAny(
+                    lower,
+                    "受交易保护",
+                    "交易保护",
+                    "交易限制",
+                    "不可交易",
+                    "不可出售",
+                    "不可转让",
+                    "不能被交易",
+                    "不能被出售",
+                    "不能被转让",
+                    "不能被消耗",
+                    "不能被改造",
+                    "trade hold",
+                    "trade restricted",
+                    "trade restriction",
+                    "not tradable",
+                    "not marketable",
+                    "tradable after",
+                    "tradeable after",
+                    "cannot be traded",
+                    "cannot be sold",
+                    "cannot be marketed",
+                    "cannot be transferred",
+                    "cannot be consumed",
+                    "cannot be modified"
+            )) {
+                return true;
+            }
+
+            if (lower.matches(".*(before|until|之前).*?(cannot|not|不可|不能).*?(trade|market|sell|transfer|交易|出售|转让).*")) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private void mergeDisplayFields(UserInventory target, UserInventory live) {
@@ -604,8 +777,16 @@ public class SteamInventoryServiceImpl implements SteamInventoryService {
         }
 
         if (target.getItem() != null) {
-            target.setRarity(firstNonBlank(target.getRarity(), target.getItem().getQuality(), target.getItem().getRarity()));
+            target.setRarity(normalizeRarity(firstNonBlank(target.getRarity(), target.getItem().getQuality(), target.getItem().getRarity())));
         }
+
+        target.setExterior(resolveExterior(
+                target.getPaintWear(),
+                target.getExterior(),
+                target.getName(),
+                target.getItem() != null ? target.getItem().getNameCn() : null,
+                target.getItem() != null ? target.getItem().getName() : null
+        ));
 
         if (target.getType() == null) {
             target.setType(detectItemType(target.getName()));
@@ -618,14 +799,21 @@ public class SteamInventoryServiceImpl implements SteamInventoryService {
             return;
         }
 
-        target.setExterior(firstNonBlank(live.getExterior(), target.getExterior()));
+        target.setIconUrlLarge(firstNonBlank(live.getIconUrlLarge(), target.getIconUrlLarge()));
         target.setPaintWear(firstNonNull(live.getPaintWear(), target.getPaintWear()));
+        target.setExterior(resolveExterior(
+                target.getPaintWear(),
+                firstNonBlank(live.getExterior(), target.getExterior()),
+                target.getName(),
+                target.getItem() != null ? target.getItem().getNameCn() : null,
+                target.getItem() != null ? target.getItem().getName() : null
+        ));
         target.setPaintSeed(firstNonNull(live.getPaintSeed(), target.getPaintSeed()));
         target.setPaintIndex(firstNonNull(live.getPaintIndex(), target.getPaintIndex()));
         target.setInspectUrl(firstNonBlank(live.getInspectUrl(), target.getInspectUrl()));
         target.setDescription(firstNonBlank(live.getDescription(), target.getDescription()));
         target.setStickers(firstNonNull(live.getStickers(), target.getStickers()));
-        target.setRarity(firstNonBlank(live.getRarity(), target.getRarity()));
+        target.setRarity(normalizeRarity(firstNonBlank(live.getRarity(), target.getRarity())));
         target.setType(firstNonBlank(live.getType(), target.getType()));
         target.setMarketableReason(firstNonBlank(live.getMarketableReason(), resolveLocalMarketableReason(target)));
     }
@@ -681,14 +869,49 @@ public class SteamInventoryServiceImpl implements SteamInventoryService {
         }
 
         String normalized = raw.trim();
-        return switch (normalized) {
-            case "factory_new", "Factory New", "崭新出厂" -> "FN";
-            case "minimal_wear", "Minimal Wear", "略有磨损" -> "MW";
-            case "field-tested", "Field-Tested", "久经沙场" -> "FT";
-            case "well-worn", "Well-Worn", "破损不堪" -> "WW";
-            case "battle-scarred", "Battle-Scarred", "战痕累累" -> "BS";
+        String lower = normalized.toLowerCase();
+        return switch (lower) {
+            case "factory_new", "factory new", "崭新出厂" -> "FN";
+            case "minimal_wear", "minimal wear", "略有磨损" -> "MW";
+            case "field-tested", "field tested", "久经沙场" -> "FT";
+            case "well-worn", "well worn", "破损不堪" -> "WW";
+            case "battle-scarred", "battle scarred", "战痕累累" -> "BS";
             default -> normalized;
         };
+    }
+
+    private String resolveExterior(String raw, String... nameCandidates) {
+        return resolveExterior(null, raw, nameCandidates);
+    }
+
+    private String resolveExterior(BigDecimal paintWear, String raw, String... nameCandidates) {
+        return InventoryExteriorResolver.resolve(paintWear, raw, nameCandidates);
+    }
+
+    private String inferExteriorFromNames(String... names) {
+        for (String name : names) {
+            if (name == null || name.isBlank()) {
+                continue;
+            }
+
+            String lower = name.toLowerCase();
+            if (name.contains("崭新出厂") || lower.contains("factory new")) {
+                return "FN";
+            }
+            if (name.contains("略有磨损") || lower.contains("minimal wear")) {
+                return "MW";
+            }
+            if (name.contains("久经沙场") || lower.contains("field-tested") || lower.contains("field tested")) {
+                return "FT";
+            }
+            if (name.contains("破损不堪") || lower.contains("well-worn") || lower.contains("well worn")) {
+                return "WW";
+            }
+            if (name.contains("战痕累累") || lower.contains("battle-scarred") || lower.contains("battle scarred")) {
+                return "BS";
+            }
+        }
+        return null;
     }
 
     private String normalizeRarity(String raw) {
@@ -704,7 +927,9 @@ public class SteamInventoryServiceImpl implements SteamInventoryService {
             case "mythical", "classified", "保密" -> "classified";
             case "rare", "restricted", "受限" -> "restricted";
             case "uncommon", "mil-spec", "军规级" -> "mil-spec";
+            case "industrial", "工业级" -> "industrial";
             case "common", "consumer", "消费级" -> "consumer";
+            case "remarkable", "奇异" -> "remarkable";
             default -> normalized;
         };
     }
@@ -794,17 +1019,19 @@ public class SteamInventoryServiceImpl implements SteamInventoryService {
 
     @Override
     public List<UserInventory> getUserInventory(Long userId) {
-        return buildPreferredInventoryView(userId, false);
+        return buildSnapshotInventoryView(userId, false);
     }
 
     @Override
     public List<UserInventory> getMarketableInventory(Long userId) {
-        return buildPreferredInventoryView(userId, true);
+        return buildSnapshotInventoryView(userId, true);
     }
 
     @Override
     public UserInventory getInventoryById(Long id) {
-        return userInventoryMapper.selectById(id);
+        UserInventory inventory = userInventoryMapper.selectById(id);
+        inspectMetadataService.repairAndPersist(inventory);
+        return inventory;
     }
 
     @Override
@@ -823,8 +1050,31 @@ public class SteamInventoryServiceImpl implements SteamInventoryService {
         return deletedCount;
     }
 
+    private List<UserInventory> buildSnapshotInventoryView(Long userId, boolean marketableOnly) {
+        List<UserInventory> localInventory = userInventoryMapper.selectByUserId(userId);
+        localInventory.forEach(inspectMetadataService::repairAndPersist);
+        localInventory.forEach(inventory -> mergeDisplayFields(inventory, null));
+        return filterInventoryForView(localInventory, marketableOnly);
+    }
+
+    private List<UserInventory> buildSyncedInventoryView(List<UserInventory> syncedInventory,
+                                                         Map<String, UserInventory> localMap,
+                                                         boolean marketableOnly) {
+        if (syncedInventory == null || syncedInventory.isEmpty()) {
+            return new ArrayList<>();
+        }
+
+        for (UserInventory inventory : syncedInventory) {
+            mergeLocalStateIntoLive(inventory, localMap != null ? localMap.get(inventory.getAssetId()) : null);
+            mergeDisplayFields(inventory, null);
+        }
+
+        return filterInventoryForView(syncedInventory, marketableOnly);
+    }
+
     private List<UserInventory> buildPreferredInventoryView(Long userId, boolean marketableOnly) {
         List<UserInventory> localInventory = userInventoryMapper.selectByUserId(userId);
+        localInventory.forEach(inspectMetadataService::repairAndPersist);
 
         try {
             User user = userMapper.selectById(userId);
@@ -836,11 +1086,7 @@ public class SteamInventoryServiceImpl implements SteamInventoryService {
             Map<String, UserInventory> localMap = localInventory.stream()
                     .collect(Collectors.toMap(UserInventory::getAssetId, inv -> inv, (left, right) -> left));
 
-            for (UserInventory live : liveInventory) {
-                mergeLocalStateIntoLive(live, localMap.get(live.getAssetId()));
-            }
-
-            return filterInventoryForView(liveInventory, marketableOnly);
+            return buildSyncedInventoryView(liveInventory, localMap, marketableOnly);
         } catch (Exception e) {
             log.warn("获取 Steam 实时库存失败，回退为本地库存: userId={}, error={}", userId, e.getMessage());
             enrichInventoryMetadata(userId, localInventory);
@@ -875,14 +1121,21 @@ public class SteamInventoryServiceImpl implements SteamInventoryService {
         live.setUpdatedAt(firstNonNull(local.getUpdatedAt(), live.getUpdatedAt()));
         live.setItem(firstNonNull(local.getItem(), live.getItem()));
 
-        live.setExterior(firstNonBlank(live.getExterior(), local.getExterior()));
+        live.setIconUrlLarge(firstNonBlank(live.getIconUrlLarge(), local.getIconUrlLarge()));
         live.setPaintWear(firstNonNull(live.getPaintWear(), local.getPaintWear()));
+        live.setExterior(resolveExterior(
+                live.getPaintWear(),
+                firstNonBlank(live.getExterior(), local.getExterior()),
+                live.getName(),
+                live.getItem() != null ? live.getItem().getNameCn() : null,
+                live.getItem() != null ? live.getItem().getName() : null
+        ));
         live.setPaintSeed(firstNonNull(live.getPaintSeed(), local.getPaintSeed()));
         live.setPaintIndex(firstNonNull(live.getPaintIndex(), local.getPaintIndex()));
         live.setInspectUrl(firstNonBlank(live.getInspectUrl(), local.getInspectUrl()));
         live.setDescription(firstNonBlank(live.getDescription(), local.getDescription()));
         live.setStickers(firstNonNull(live.getStickers(), local.getStickers()));
-        live.setRarity(firstNonBlank(live.getRarity(), local.getRarity()));
+        live.setRarity(normalizeRarity(firstNonBlank(live.getRarity(), local.getRarity())));
         live.setType(firstNonBlank(live.getType(), local.getType()));
         live.setMarketableReason(firstNonBlank(live.getMarketableReason(), resolveLocalMarketableReason(local)));
     }
@@ -899,11 +1152,22 @@ public class SteamInventoryServiceImpl implements SteamInventoryService {
         changed |= updateIfChanged(existing.getInstanceId(), latest.getInstanceId(), existing::setInstanceId);
         changed |= updateIfChanged(existing.getName(), latest.getName(), existing::setName);
         changed |= updateIfChanged(existing.getIconUrl(), latest.getIconUrl(), existing::setIconUrl);
+        changed |= updateIfChanged(existing.getIconUrlLarge(), latest.getIconUrlLarge(), existing::setIconUrlLarge);
         changed |= updateIfChanged(existing.getExterior(), latest.getExterior(), existing::setExterior);
         changed |= updateIfChanged(existing.getPaintSeed(), latest.getPaintSeed(), existing::setPaintSeed);
+        changed |= updateIfChanged(existing.getPaintIndex(), latest.getPaintIndex(), existing::setPaintIndex);
         changed |= updateIfChanged(existing.getPaintWear(), latest.getPaintWear(), existing::setPaintWear);
+        changed |= updateIfChanged(existing.getInspectUrl(), latest.getInspectUrl(), existing::setInspectUrl);
+        changed |= updateIfChanged(existing.getDescription(), latest.getDescription(), existing::setDescription);
+        changed |= updateIfChanged(existing.getMarketableReason(), latest.getMarketableReason(), existing::setMarketableReason);
+        changed |= updateIfChanged(existing.getRarity(), latest.getRarity(), existing::setRarity);
+        changed |= updateIfChanged(existing.getType(), latest.getType(), existing::setType);
         changed |= updateIfChanged(existing.getIsMarketable(), latest.getIsMarketable(), existing::setIsMarketable);
         changed |= updateIfChanged(existing.getMarketPrice(), latest.getMarketPrice(), existing::setMarketPrice);
+
+        if (latest.getItem() != null) {
+            existing.setItem(latest.getItem());
+        }
 
         if (existing.getAcquiredAt() == null && latest.getAcquiredAt() != null) {
             existing.setAcquiredAt(latest.getAcquiredAt());
@@ -929,6 +1193,8 @@ public class SteamInventoryServiceImpl implements SteamInventoryService {
         if (inventoryList == null || inventoryList.isEmpty()) {
             return;
         }
+
+        inventoryList.forEach(inspectMetadataService::repairAndPersist);
 
         try {
             User user = userMapper.selectById(userId);

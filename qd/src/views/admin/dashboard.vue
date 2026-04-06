@@ -242,6 +242,18 @@
                   <span>下批次页范围</span>
                   <strong>{{ nextBatchRange }}</strong>
                 </div>
+                <div class="stat-item">
+                  <span>每页数量</span>
+                  <strong>{{ syncStatus.pageSize || 0 }}</strong>
+                </div>
+                <div class="stat-item">
+                  <span>重试次数</span>
+                  <strong>{{ syncStatus.retryCount || 0 }}</strong>
+                </div>
+                <div class="stat-item">
+                  <span>上次状态码</span>
+                  <strong>{{ syncStatus.lastHttpStatus ?? '-' }}</strong>
+                </div>
               </div>
 
               <div class="meta-grid">
@@ -249,6 +261,15 @@
                 <div>结束时间：{{ formatDateTime(syncStatus.finishedAt) }}</div>
                 <div>耗时：{{ formatDuration(syncStatus.lastDurationSeconds) }}</div>
               </div>
+
+              <el-alert
+                v-if="syncStatus.phase === 'cooldown'"
+                :title="cooldownMessage"
+                type="warning"
+                :closable="false"
+                show-icon
+                class="status-alert"
+              />
 
               <el-alert
                 v-if="syncStatus.capped"
@@ -269,7 +290,7 @@
               />
 
               <el-alert
-                v-if="syncStatus.error"
+                v-if="syncStatus.phase === 'failed' && syncStatus.error"
                 :title="syncStatus.error"
                 type="error"
                 :closable="false"
@@ -1043,6 +1064,7 @@ function createDefaultSyncStatus() {
     remainingPages: 0,
     nextStartPage: 0,
     nextEndPage: 0,
+    totalCount: 0,
     // 详细同步状态
     totalCount: 0,
     totalPages: 0,
@@ -1053,6 +1075,11 @@ function createDefaultSyncStatus() {
     skippedCount: 0,
     remainingItems: 0,
     remainingPageRange: '',
+    pageSize: 0,
+    retryCount: 0,
+    lastHttpStatus: null,
+    cooldownUntil: null,
+    autoRetrying: false,
     capped: false,
     canContinue: false,
     startedAt: null,
@@ -1085,6 +1112,7 @@ const pageDescription = computed(() => {
 })
 
 const syncTagType = computed(() => {
+  if (syncStatus.value.phase === 'cooldown') return 'warning'
   if (syncStatus.value.running) return 'warning'
   if (syncStatus.value.phase === 'completed') return 'success'
   if (syncStatus.value.phase === 'failed') return 'danger'
@@ -1093,6 +1121,7 @@ const syncTagType = computed(() => {
 })
 
 const syncLabel = computed(() => {
+  if (syncStatus.value.phase === 'cooldown') return '冷却中'
   if (syncStatus.value.running) return '进行中'
   if (syncStatus.value.phase === 'completed') return '已完成'
   if (syncStatus.value.phase === 'failed') return '失败'
@@ -1109,6 +1138,9 @@ const nextBatchRange = computed(() => {
 
 // 同步中心相关计算属性
 const primaryButtonText = computed(() => {
+  if (syncStatus.value.phase === 'cooldown') {
+    return '限流冷却中'
+  }
   if (syncStatus.value.running) {
     return '同步进行中'
   }
@@ -1129,6 +1161,13 @@ const continueMessage = computed(() => {
   return `当前已保留进度，可继续同步第 ${nextBatchRange.value} 页。`
 })
 
+const cooldownMessage = computed(() => {
+  if (syncStatus.value.phase !== 'cooldown') {
+    return ''
+  }
+  return syncStatus.value.message || 'Steam 限流中，系统会自动重试。'
+})
+
 const progressPercentage = computed(() => {
   const total = Number(syncStatus.value.totalCount) || 0
   const processed = Number(syncStatus.value.processedCount) || 0
@@ -1140,6 +1179,7 @@ const progressPercentage = computed(() => {
 
 const statusLabel = computed(() => {
   const phaseMap = {
+    cooldown: '冷却中',
     idle: '未开始',
     syncing: '同步中',
     completed: '已完成',
@@ -1153,6 +1193,7 @@ const statusTagType = computed(() => {
   if (syncStatus.value.phase === 'completed') return 'success'
   if (syncStatus.value.phase === 'partial') return 'warning'
   if (syncStatus.value.phase === 'failed') return 'danger'
+  if (syncStatus.value.phase === 'cooldown') return 'warning'
   if (syncStatus.value.running) return 'warning'
   return 'info'
 })

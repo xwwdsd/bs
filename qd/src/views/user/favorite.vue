@@ -30,15 +30,15 @@
         <div class="items-grid" v-if="items.length > 0">
           <div class="item-card" v-for="fav in items" :key="fav.id">
             <div class="item-image" @click="viewItem(fav.item)">
-              <img :src="fav.item?.iconUrl" :alt="fav.item?.name" />
+              <img :src="fav.item?.iconUrl" :alt="getItemDisplayName(fav.item)" />
               <div class="item-rarity" v-if="fav.item?.rarity">{{ fav.item?.rarity }}</div>
             </div>
             <div class="item-info">
-              <div class="item-name" @click="viewItem(fav.item)">{{ fav.item?.name }}</div>
+              <div class="item-name" @click="viewItem(fav.item)">{{ getItemDisplayName(fav.item) }}</div>
               <div class="item-prices">
                 <div class="current-price">
                   <span class="label">最低价</span>
-                  <span class="price">¥ {{ fav.item?.marketPrice || '--' }}</span>
+                  <span class="price">¥ {{ formatPrice(fav.item?.buffPrice) }}</span>
                 </div>
               </div>
             </div>
@@ -102,7 +102,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
+import { onMounted, ref } from 'vue'
 import { getFavorites, removeFavorite } from '@/api/favorite'
 import { Delete, ShoppingBag, Document, User, View } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
@@ -121,18 +121,30 @@ const switchTab = (tab) => {
   fetchFavorites()
 }
 
+const refreshFavoriteCounts = async () => {
+  try {
+    const [itemFavorites, newsFavorites] = await Promise.all([
+      getFavorites(1),
+      getFavorites(2)
+    ])
+    itemCount.value = Array.isArray(itemFavorites) ? itemFavorites.length : 0
+    newsCount.value = Array.isArray(newsFavorites) ? newsFavorites.length : 0
+  } catch (error) {
+    console.error(error)
+  }
+}
+
 const fetchFavorites = async () => {
   loading.value = true
   try {
     const res = await getFavorites(activeTab.value)
-    if (res) {
-      if (activeTab.value === 1) {
-        items.value = res
-        itemCount.value = res.length
-      } else {
-        newsList.value = res
-        newsCount.value = res.length
-      }
+    const list = Array.isArray(res) ? res : []
+    if (activeTab.value === 1) {
+      items.value = list
+      itemCount.value = list.length
+    } else {
+      newsList.value = list
+      newsCount.value = list.length
     }
   } catch (error) {
     console.error(error)
@@ -164,6 +176,13 @@ const viewItem = (item) => {
   }
 }
 
+const getItemDisplayName = (item) => item?.nameCn || item?.name || '未知饰品'
+
+const formatPrice = (value) => {
+  const numeric = Number(value)
+  return Number.isFinite(numeric) && numeric > 0 ? numeric.toFixed(2) : '--'
+}
+
 const viewNews = (news) => {
   if (news?.id) {
     router.push(`/news/${news.id}`)
@@ -177,6 +196,7 @@ const formatDate = (dateStr) => {
 }
 
 onMounted(() => {
+  refreshFavoriteCounts()
   fetchFavorites()
 })
 </script>

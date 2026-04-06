@@ -9,7 +9,7 @@ import request, { get } from '@/utils/request'
  * @returns {Promise}
  */
 export const getInventory = () => {
-  return request.get('/v1/inventory', { timeout: 45000 })
+  return request.get('/v1/inventory', { timeout: 15000 })
 }
 
 /**
@@ -25,7 +25,7 @@ export const syncInventory = () => {
  * @returns {Promise}
  */
 export const getMarketableInventory = () => {
-  return request.get('/v1/inventory/marketable', { timeout: 45000 })
+  return request.get('/v1/inventory/marketable', { timeout: 15000 })
 }
 
 /**
@@ -33,5 +33,5 @@ export const getMarketableInventory = () => {
  * @returns {Promise}
  */
 export const getUserInventory = () => {
-  return request.get('/v1/inventory', { timeout: 45000 })
+  return request.get('/v1/inventory', { timeout: 15000 })
 }

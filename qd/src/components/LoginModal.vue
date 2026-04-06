@@ -201,7 +201,7 @@ const handleSubmit = async () => {
           account: form.account,
           password: form.password
         })
-        userStore.setLoginInfo(data)
+        userStore.setLoginInfo(data, { rememberMe: rememberMe.value })
         ElMessage.success('登录成功')
         visible.value = false
         emit('success')

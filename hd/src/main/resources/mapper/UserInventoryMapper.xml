@@ -20,9 +20,16 @@
         <result column="instance_id" property="instanceId"/>
         <result column="name" property="name"/>
         <result column="icon_url" property="iconUrl"/>
+        <result column="icon_url_large" property="iconUrlLarge"/>
         <result column="exterior" property="exterior"/>
         <result column="paint_seed" property="paintSeed"/>
+        <result column="paint_index" property="paintIndex"/>
         <result column="paint_wear" property="paintWear"/>
+        <result column="inspect_url" property="inspectUrl"/>
+        <result column="description" property="description"/>
+        <result column="marketable_reason" property="marketableReason"/>
+        <result column="rarity" property="rarity"/>
+        <result column="type" property="type"/>
         <result column="is_marketable" property="isMarketable"/>
         <result column="status" property="status"/>
         <result column="market_price" property="marketPrice"/>
@@ -45,7 +52,8 @@
     <!-- 基础列列表 -->
     <sql id="Base_Column_List">
         ui.id, ui.user_id, ui.item_id, ui.asset_id, ui.class_id, ui.instance_id,
-        ui.name, ui.icon_url, ui.exterior, ui.paint_seed, ui.paint_wear,
+        ui.name, ui.icon_url, ui.icon_url_large, ui.exterior, ui.paint_seed, ui.paint_index, ui.paint_wear,
+        ui.inspect_url, ui.description, ui.marketable_reason, ui.rarity, ui.type,
         ui.is_marketable, ui.status, ui.market_price, ui.acquired_at, ui.created_at, ui.updated_at
     </sql>
 
@@ -101,11 +109,13 @@
     <!-- 插入新库存物品 -->
     <insert id="insert" useGeneratedKeys="true" keyProperty="id">
         INSERT INTO user_inventory (
-            user_id, item_id, asset_id, class_id, instance_id, name, icon_url,
-            exterior, paint_seed, paint_wear, is_marketable, status, market_price, acquired_at, created_at, updated_at
+            user_id, item_id, asset_id, class_id, instance_id, name, icon_url, icon_url_large,
+            exterior, paint_seed, paint_index, paint_wear, inspect_url, description,
+            marketable_reason, rarity, type, is_marketable, status, market_price, acquired_at, created_at, updated_at
         ) VALUES (
-            #{userId}, #{itemId}, #{assetId}, #{classId}, #{instanceId}, #{name}, #{iconUrl},
-            #{exterior}, #{paintSeed}, #{paintWear}, #{isMarketable}, #{status}, #{marketPrice}, #{acquiredAt}, NOW(), NOW()
+            #{userId}, #{itemId}, #{assetId}, #{classId}, #{instanceId}, #{name}, #{iconUrl}, #{iconUrlLarge},
+            #{exterior}, #{paintSeed}, #{paintIndex}, #{paintWear}, #{inspectUrl}, #{description},
+            #{marketableReason}, #{rarity}, #{type}, #{isMarketable}, #{status}, #{marketPrice}, #{acquiredAt}, NOW(), NOW()
         )
     </insert>
 
@@ -119,9 +129,16 @@
             <if test="instanceId != null">instance_id = #{instanceId},</if>
             <if test="name != null">name = #{name},</if>
             <if test="iconUrl != null">icon_url = #{iconUrl},</if>
+            <if test="iconUrlLarge != null">icon_url_large = #{iconUrlLarge},</if>
             <if test="exterior != null">exterior = #{exterior},</if>
             <if test="paintSeed != null">paint_seed = #{paintSeed},</if>
+            <if test="paintIndex != null">paint_index = #{paintIndex},</if>
             <if test="paintWear != null">paint_wear = #{paintWear},</if>
+            <if test="inspectUrl != null">inspect_url = #{inspectUrl},</if>
+            <if test="description != null">description = #{description},</if>
+            <if test="marketableReason != null">marketable_reason = #{marketableReason},</if>
+            <if test="rarity != null">rarity = #{rarity},</if>
+            <if test="type != null">type = #{type},</if>
             <if test="isMarketable != null">is_marketable = #{isMarketable},</if>
             <if test="status != null">status = #{status},</if>
             <if test="marketPrice != null">market_price = #{marketPrice},</if>

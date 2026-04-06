@@ -24,6 +24,11 @@ public interface TradeOrderService {
     TradeOrder createOrder(Long buyerId, Long sellOrderId);
 
     /**
+     * 鍒涘缓璁㈠崟锛堝厑璁稿嵎鐢ㄦ寚瀹氭垚浜や环锛?
+     */
+    TradeOrder createOrder(Long buyerId, Long sellOrderId, java.math.BigDecimal agreedPrice);
+
+    /**
      * 支付订单（模拟支付）
      *
      * @param orderId 订单ID
@@ -42,6 +47,16 @@ public interface TradeOrderService {
      * @return boolean 是否发货成功
      */
     boolean shipOrder(Long orderId, Long sellerId, String tradeOfferId, String tradeOfferUrl);
+
+    /**
+     * 卖家确认已接受机器人报价
+     */
+    boolean confirmBotOffer(Long orderId, Long sellerId);
+
+    /**
+     * 手动触发机器人收货检测
+     */
+    TradeOrder checkBotDelivery(Long orderId, Long userId);
 
     /**
      * 确认收货
