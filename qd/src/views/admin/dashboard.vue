@@ -44,101 +44,114 @@
 
     <section class="main-panel">
       <!-- 控制台页面 -->
-      <div v-if="activeTab === 'dashboard'">
-        <section class="stats-grid">
-          <article class="stat-card">
-            <span class="stat-label">用户总数</span>
-            <strong>{{ statistics.totalUsers || 0 }}</strong>
-          </article>
-          <article class="stat-card">
-            <span class="stat-label">订单总数</span>
-            <strong>{{ statistics.totalOrders || 0 }}</strong>
-          </article>
-          <article class="stat-card">
-            <span class="stat-label">交易总额</span>
-            <strong>¥ {{ formatAmount(statistics.totalTradeAmount) }}</strong>
-          </article>
-          <article class="stat-card">
-            <span class="stat-label">饰品总数</span>
-            <strong>{{ statistics.totalItems || 0 }}</strong>
+      <div v-if="activeTab === 'dashboard'" class="dashboard-visual">
+        <section class="visual-hero">
+          <div>
+            <span class="visual-eyebrow">运营总览</span>
+            <h2>控制台</h2>
+            <p>交易、用户、饰品与同步任务</p>
+          </div>
+          <div class="visual-hero-meta">
+            <span>最近刷新：{{ refreshedAt }}</span>
+            <el-button @click="refreshAll" :loading="dashboardLoading">刷新数据</el-button>
+          </div>
+        </section>
+
+        <section class="visual-stat-grid">
+          <article v-for="card in summaryCards" :key="card.label" class="visual-stat-card">
+            <span>{{ card.label }}</span>
+            <strong>{{ card.value }}</strong>
+            <small>{{ card.detail }}</small>
           </article>
         </section>
 
-        <section class="content-grid">
-          <article class="panel-card">
-            <div class="panel-head">
-              <h3>系统概览</h3>
-              <span class="panel-tag">Overview</span>
+        <section class="visual-grid">
+          <article class="visual-card visual-card-wide">
+            <div class="visual-card-head">
+              <div>
+                <h3>交易趋势</h3>
+                <span>近 7 天订单与成交额</span>
+              </div>
+              <span class="visual-tag">Trade</span>
             </div>
-            <div class="overview-list">
-              <div class="overview-item">
-                <span>登录状态</span>
-                <strong>{{ userStore.isLoggedIn ? '已登录' : '未登录' }}</strong>
-              </div>
-              <div class="overview-item">
-                <span>管理员权限</span>
-                <strong>{{ userStore.isAdmin ? '已开启' : '未开启' }}</strong>
-              </div>
-              <div class="overview-item">
-                <span>最近刷新时间</span>
-                <strong>{{ refreshedAt }}</strong>
-              </div>
-              <div class="overview-item">
-                <span>后台入口</span>
-                <strong>/admin</strong>
-              </div>
-            </div>
+            <v-chart
+              v-if="hasTradeTrendData"
+              class="dashboard-chart"
+              :option="tradeTrendOption"
+              autoresize
+            />
+            <div v-else class="chart-empty">暂无趋势数据</div>
           </article>
 
-          <article class="panel-card">
-            <div class="panel-head">
-              <h3>Steam 同步状态</h3>
-              <span class="panel-tag">Sync</span>
+          <article class="visual-card">
+            <div class="visual-card-head">
+              <div>
+                <h3>订单状态</h3>
+                <span>待处理、完成与其他</span>
+              </div>
+              <span class="visual-tag">Orders</span>
             </div>
-            <div class="sync-summary">
-              <div class="sync-row">
-                <span>任务状态</span>
-                <el-tag :type="syncTagType">{{ syncLabel }}</el-tag>
+            <v-chart
+              v-if="hasOrderStatusData"
+              class="dashboard-chart compact-chart"
+              :option="orderStatusOption"
+              autoresize
+            />
+            <div v-else class="chart-empty">暂无订单数据</div>
+          </article>
+
+          <article class="visual-card visual-card-wide">
+            <div class="visual-card-head">
+              <div>
+                <h3>用户增长</h3>
+                <span>近 7 天新增与累计</span>
               </div>
-              <div class="sync-row">
-                <span>当前提示</span>
-                <strong>{{ syncStatus.message || '暂无任务' }}</strong>
+              <span class="visual-tag">Users</span>
+            </div>
+            <v-chart
+              v-if="hasUserGrowthData"
+              class="dashboard-chart"
+              :option="userGrowthOption"
+              autoresize
+            />
+            <div v-else class="chart-empty">暂无用户增长数据</div>
+          </article>
+
+          <article class="visual-card sync-visual-card">
+            <div class="visual-card-head">
+              <div>
+                <h3>Steam 同步状态</h3>
+                <span>{{ syncStatus.message || '暂无任务' }}</span>
               </div>
-              <div class="sync-row">
+              <el-tag :type="syncTagType">{{ syncLabel }}</el-tag>
+            </div>
+
+            <el-progress
+              :percentage="progressPercentage"
+              :status="progressState"
+              :stroke-width="14"
+            />
+
+            <div class="sync-visual-list">
+              <div>
                 <span>已同步页数</span>
                 <strong>{{ syncStatus.syncedPages || 0 }} / {{ syncStatus.plannedPages || 0 }}</strong>
               </div>
-              <div class="sync-row">
+              <div>
                 <span>剩余页数</span>
                 <strong>{{ syncStatus.remainingPages || 0 }}</strong>
               </div>
+              <div>
+                <span>处理饰品</span>
+                <strong>{{ syncStatus.processedCount || 0 }} / {{ syncStatus.totalCount || 0 }}</strong>
+              </div>
             </div>
-            <div class="panel-actions">
+
+            <div class="visual-actions">
               <el-button type="primary" @click="activeTab = 'sync'">进入同步中心</el-button>
               <el-button @click="refreshSyncStatus" :loading="syncLoading">刷新同步状态</el-button>
             </div>
           </article>
-        </section>
-
-        <section class="table-panel">
-          <div class="panel-head">
-            <h3>管理说明</h3>
-            <span class="panel-tag">Notes</span>
-          </div>
-          <div class="note-grid">
-            <div class="note-card">
-              <h4>后台首页</h4>
-              <p>恢复为传统管理台布局，方便你从一个页面看到主要统计、同步状态和常用入口。</p>
-            </div>
-            <div class="note-card">
-              <h4>同步任务</h4>
-              <p>Steam 饰品同步的详细进度、剩余页数、继续同步等操作在同步中心页面中。</p>
-            </div>
-            <div class="note-card">
-              <h4>权限控制</h4>
-              <p>管理员接口权限收口已经保留，后台样式恢复不会影响已有的安全限制。</p>
-            </div>
-          </div>
         </section>
       </div>
 
@@ -869,12 +882,18 @@ import { computed, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Search, Plus } from '@element-plus/icons-vue'
-import request from '@/utils/request'
+import VChart from 'vue-echarts'
+import { use } from 'echarts/core'
+import { CanvasRenderer } from 'echarts/renderers'
+import { BarChart, LineChart, PieChart } from 'echarts/charts'
+import { GridComponent, LegendComponent, TooltipComponent } from 'echarts/components'
 import { useUserStore } from '@/stores/user'
 import { getSteamSyncStatus, syncItemsFromSteam } from '@/api/item'
 import { post } from '@/utils/request'
-import { getUsers, deleteUser, getAllItems, deleteItem, getAllOrders, cancelOrder, getAllNews, createNews, updateNews, deleteNews, auditNews, getAllPlayerShows, deletePlayerShow } from '@/api/admin'
+import { getStatistics, getTradeTrend, getUserGrowth, getUsers, deleteUser, getAllItems, deleteItem, getAllOrders, cancelOrder, getAllNews, createNews, updateNews, deleteNews, auditNews, getAllPlayerShows, deletePlayerShow } from '@/api/admin'
 import { getAllBanners, createBanner, updateBanner, deleteBanner, updateBannerStatus } from '@/api/banner'
+
+use([CanvasRenderer, BarChart, LineChart, PieChart, GridComponent, LegendComponent, TooltipComponent])
 
 const router = useRouter()
 const userStore = useUserStore()
@@ -885,6 +904,17 @@ const syncLoading = ref(false)
 const statistics = ref({})
 const refreshedAt = ref('-')
 const syncStatus = ref(createDefaultSyncStatus())
+const dashboardChartsLoading = ref(false)
+const tradeTrend = ref({
+  dates: [],
+  orderCounts: [],
+  amounts: []
+})
+const userGrowth = ref({
+  dates: [],
+  newUsers: [],
+  totalUsers: []
+})
 
 // 监听 Tab 切换，自动加载对应数据
 watch(activeTab, (newTab) => {
@@ -1204,10 +1234,249 @@ const progressState = computed(() => {
   return undefined
 })
 
+const dashboardLoading = computed(() => {
+  return loading.value || syncLoading.value || dashboardChartsLoading.value
+})
+
+const summaryCards = computed(() => [
+  {
+    label: '用户总数',
+    value: formatNumber(statistics.value.totalUsers),
+    detail: `活跃用户 ${formatNumber(statistics.value.activeUsers)}`
+  },
+  {
+    label: '订单总数',
+    value: formatNumber(statistics.value.totalOrders),
+    detail: `今日订单 ${formatNumber(statistics.value.todayOrders)}`
+  },
+  {
+    label: '交易总额',
+    value: formatMoney(statistics.value.totalTradeAmount),
+    detail: `今日成交 ${formatMoney(statistics.value.todayTradeAmount)}`
+  },
+  {
+    label: '饰品总数',
+    value: formatNumber(statistics.value.totalItems),
+    detail: `同步饰品 ${formatNumber(syncStatus.value.totalCount || statistics.value.totalItems)}`
+  }
+])
+
+const orderBreakdown = computed(() => {
+  const total = Number(statistics.value.totalOrders) || 0
+  const pending = Math.max(0, Number(statistics.value.pendingOrders) || 0)
+  const completed = Math.max(0, Number(statistics.value.completedOrders) || 0)
+  const other = Math.max(0, total - pending - completed)
+
+  return [
+    { name: '待处理订单', value: pending },
+    { name: '已完成订单', value: completed },
+    { name: '其他订单', value: other }
+  ]
+})
+
+const hasTradeTrendData = computed(() => {
+  return hasAnyNumber(tradeTrend.value.orderCounts) || hasAnyNumber(tradeTrend.value.amounts)
+})
+
+const hasUserGrowthData = computed(() => {
+  return hasAnyNumber(userGrowth.value.newUsers) || hasAnyNumber(userGrowth.value.totalUsers)
+})
+
+const hasOrderStatusData = computed(() => {
+  return orderBreakdown.value.some((item) => Number(item.value) > 0)
+})
+
+const chartTextStyle = {
+  color: '#64748b',
+  fontSize: 12
+}
+
+const chartAxisLine = {
+  lineStyle: {
+    color: '#dbe3ef'
+  }
+}
+
+const chartSplitLine = {
+  lineStyle: {
+    color: '#eef2f7'
+  }
+}
+
+const tradeTrendOption = computed(() => {
+  const dates = Array.isArray(tradeTrend.value.dates) ? tradeTrend.value.dates : []
+  const orderCounts = toNumberList(tradeTrend.value.orderCounts)
+  const amounts = toNumberList(tradeTrend.value.amounts)
+
+  return {
+    color: ['#2563eb', '#f59e0b'],
+    tooltip: {
+      trigger: 'axis',
+      backgroundColor: '#0f172a',
+      borderWidth: 0,
+      textStyle: { color: '#ffffff' },
+      formatter: formatTradeTooltip
+    },
+    legend: {
+      bottom: 0,
+      icon: 'circle',
+      textStyle: chartTextStyle
+    },
+    grid: {
+      left: 44,
+      right: 54,
+      top: 34,
+      bottom: 48
+    },
+    xAxis: {
+      type: 'category',
+      data: dates,
+      boundaryGap: false,
+      axisLine: chartAxisLine,
+      axisTick: { show: false },
+      axisLabel: chartTextStyle
+    },
+    yAxis: [
+      {
+        type: 'value',
+        name: '订单',
+        nameTextStyle: chartTextStyle,
+        axisLabel: chartTextStyle,
+        splitLine: chartSplitLine
+      },
+      {
+        type: 'value',
+        name: '成交额',
+        nameTextStyle: chartTextStyle,
+        axisLabel: {
+          ...chartTextStyle,
+          formatter: (value) => `¥${value}`
+        },
+        splitLine: { show: false }
+      }
+    ],
+    series: [
+      {
+        name: '订单数',
+        type: 'line',
+        smooth: true,
+        symbolSize: 6,
+        data: orderCounts,
+        areaStyle: {
+          color: 'rgba(37, 99, 235, 0.12)'
+        }
+      },
+      {
+        name: '成交额',
+        type: 'line',
+        smooth: true,
+        yAxisIndex: 1,
+        symbolSize: 6,
+        data: amounts
+      }
+    ]
+  }
+})
+
+const userGrowthOption = computed(() => {
+  const dates = Array.isArray(userGrowth.value.dates) ? userGrowth.value.dates : []
+  const newUsers = toNumberList(userGrowth.value.newUsers)
+  const totalUsers = toNumberList(userGrowth.value.totalUsers)
+
+  return {
+    color: ['#0ea5e9', '#16a34a'],
+    tooltip: {
+      trigger: 'axis',
+      backgroundColor: '#0f172a',
+      borderWidth: 0,
+      textStyle: { color: '#ffffff' },
+      formatter: formatNumberTooltip
+    },
+    legend: {
+      bottom: 0,
+      icon: 'circle',
+      textStyle: chartTextStyle
+    },
+    grid: {
+      left: 44,
+      right: 36,
+      top: 34,
+      bottom: 48
+    },
+    xAxis: {
+      type: 'category',
+      data: dates,
+      axisLine: chartAxisLine,
+      axisTick: { show: false },
+      axisLabel: chartTextStyle
+    },
+    yAxis: {
+      type: 'value',
+      axisLabel: chartTextStyle,
+      splitLine: chartSplitLine
+    },
+    series: [
+      {
+        name: '新增用户',
+        type: 'bar',
+        barWidth: 16,
+        data: newUsers,
+        itemStyle: {
+          borderRadius: [4, 4, 0, 0]
+        }
+      },
+      {
+        name: '累计用户',
+        type: 'line',
+        smooth: true,
+        symbolSize: 6,
+        data: totalUsers
+      }
+    ]
+  }
+})
+
+const orderStatusOption = computed(() => {
+  return {
+    color: ['#f59e0b', '#16a34a', '#64748b'],
+    tooltip: {
+      trigger: 'item',
+      backgroundColor: '#0f172a',
+      borderWidth: 0,
+      textStyle: { color: '#ffffff' },
+      formatter: (params) => `${params.marker}${params.name}: ${formatNumber(params.value)} (${params.percent}%)`
+    },
+    legend: {
+      bottom: 0,
+      icon: 'circle',
+      textStyle: chartTextStyle
+    },
+    series: [
+      {
+        name: '订单状态',
+        type: 'pie',
+        radius: ['52%', '72%'],
+        center: ['50%', '44%'],
+        avoidLabelOverlap: true,
+        label: {
+          color: '#334155',
+          formatter: '{b}\n{c}'
+        },
+        labelLine: {
+          lineStyle: {
+            color: '#cbd5e1'
+          }
+        },
+        data: orderBreakdown.value
+      }
+    ]
+  }
+})
+
 const refreshStatistics = async () => {
   loading.value = true
   try {
-    const res = await request.get('/v1/admin/statistics')
+    const res = await getStatistics()
     statistics.value = res || {}
     refreshedAt.value = new Date().toLocaleString('zh-CN')
   } catch (error) {
@@ -1229,12 +1498,82 @@ const refreshSyncStatus = async () => {
   }
 }
 
+const refreshDashboardCharts = async () => {
+  dashboardChartsLoading.value = true
+  try {
+    const [tradeResult, userResult] = await Promise.allSettled([
+      getTradeTrend(7),
+      getUserGrowth(7)
+    ])
+
+    if (tradeResult.status === 'fulfilled') {
+      tradeTrend.value = {
+        dates: tradeResult.value?.dates || [],
+        orderCounts: tradeResult.value?.orderCounts || [],
+        amounts: tradeResult.value?.amounts || []
+      }
+    } else {
+      tradeTrend.value = { dates: [], orderCounts: [], amounts: [] }
+    }
+
+    if (userResult.status === 'fulfilled') {
+      userGrowth.value = {
+        dates: userResult.value?.dates || [],
+        newUsers: userResult.value?.newUsers || [],
+        totalUsers: userResult.value?.totalUsers || []
+      }
+    } else {
+      userGrowth.value = { dates: [], newUsers: [], totalUsers: [] }
+    }
+
+    if (tradeResult.status === 'rejected' || userResult.status === 'rejected') {
+      ElMessage.error('获取趋势数据失败')
+    }
+  } finally {
+    dashboardChartsLoading.value = false
+  }
+}
+
 const refreshAll = async () => {
-  await Promise.all([refreshStatistics(), refreshSyncStatus()])
+  await Promise.all([refreshStatistics(), refreshSyncStatus(), refreshDashboardCharts()])
 }
 
 const formatAmount = (value) => {
   return Number(value || 0).toFixed(2)
+}
+
+function formatMoney(value) {
+  return `¥ ${formatAmount(value)}`
+}
+
+function formatNumber(value) {
+  return Number(value || 0).toLocaleString('zh-CN')
+}
+
+function toNumberList(list) {
+  if (!Array.isArray(list)) return []
+  return list.map((value) => Number(value) || 0)
+}
+
+function hasAnyNumber(list) {
+  return toNumberList(list).some((value) => value > 0)
+}
+
+function formatTradeTooltip(params = []) {
+  const rows = params.map((item) => {
+    const value = item.seriesName === '成交额' ? formatMoney(item.value) : formatNumber(item.value)
+    return `${item.marker}${item.seriesName}: ${value}`
+  })
+
+  return [params[0]?.axisValue || '', ...rows].join('<br/>')
+}
+
+function formatNumberTooltip(params = []) {
+  const rows = params.map((item) => {
+    return `${item.marker}${item.seriesName}: ${formatNumber(item.value)}`
+  })
+
+  return [params[0]?.axisValue || '', ...rows].join('<br/>')
 }
 
 const logout = async () => {
@@ -1898,6 +2237,199 @@ onMounted(() => {
   padding: 28px;
 }
 
+.dashboard-visual {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.visual-hero {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 20px;
+  padding: 22px 24px;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  background: #ffffff;
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.04);
+}
+
+.visual-eyebrow {
+  display: inline-block;
+  margin-bottom: 8px;
+  color: #2563eb;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.visual-hero h2 {
+  margin: 0;
+  color: #0f172a;
+  font-size: 28px;
+}
+
+.visual-hero p {
+  margin: 8px 0 0;
+  color: #64748b;
+  font-size: 14px;
+}
+
+.visual-hero-meta {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+  color: #64748b;
+  font-size: 14px;
+}
+
+.visual-stat-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.visual-stat-card,
+.visual-card {
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  background: #ffffff;
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.04);
+}
+
+.visual-stat-card {
+  min-width: 0;
+  padding: 20px;
+}
+
+.visual-stat-card span,
+.visual-stat-card small {
+  display: block;
+  color: #64748b;
+}
+
+.visual-stat-card span {
+  margin-bottom: 10px;
+  font-size: 14px;
+}
+
+.visual-stat-card strong {
+  display: block;
+  color: #0f172a;
+  font-size: 30px;
+  line-height: 1.2;
+  word-break: break-word;
+}
+
+.visual-stat-card small {
+  margin-top: 12px;
+  font-size: 13px;
+}
+
+.visual-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) minmax(300px, 1fr);
+  gap: 20px;
+}
+
+.visual-card {
+  min-width: 0;
+  padding: 20px;
+}
+
+.visual-card-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 16px;
+  margin-bottom: 16px;
+}
+
+.visual-card-head h3 {
+  margin: 0;
+  color: #0f172a;
+  font-size: 18px;
+}
+
+.visual-card-head > div > span {
+  display: block;
+  margin-top: 6px;
+  color: #64748b;
+  font-size: 13px;
+}
+
+.visual-tag {
+  flex: 0 0 auto;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: #eff6ff;
+  color: #2563eb;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.dashboard-chart {
+  width: 100%;
+  height: 320px;
+}
+
+.compact-chart {
+  height: 300px;
+}
+
+.chart-empty {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  height: 320px;
+  border: 1px dashed #dbe3ef;
+  border-radius: 8px;
+  background: #f8fafc;
+  color: #64748b;
+}
+
+.sync-visual-card {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.sync-visual-list {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 10px;
+}
+
+.sync-visual-list > div {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: #f8fafc;
+}
+
+.sync-visual-list span {
+  color: #64748b;
+}
+
+.sync-visual-list strong {
+  color: #0f172a;
+  text-align: right;
+}
+
+.visual-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: auto;
+}
+
 .stats-grid {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -2195,6 +2727,14 @@ onMounted(() => {
     grid-template-columns: 1fr 1fr;
   }
 
+  .visual-stat-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .visual-grid {
+    grid-template-columns: 1fr;
+  }
+
   .stats-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
@@ -2222,6 +2762,23 @@ onMounted(() => {
   .content-grid,
   .note-grid {
     grid-template-columns: 1fr;
+  }
+
+  .visual-hero {
+    flex-direction: column;
+  }
+
+  .visual-hero-meta {
+    justify-content: flex-start;
+  }
+
+  .visual-stat-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .dashboard-chart,
+  .chart-empty {
+    height: 280px;
   }
 
   .topbar {

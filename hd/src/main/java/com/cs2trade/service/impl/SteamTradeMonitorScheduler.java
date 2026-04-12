@@ -25,7 +25,7 @@ public class SteamTradeMonitorScheduler {
         }
 
         if (!steamTradeMonitorService.isBotMonitoringEnabled()) {
-            log.debug("Steam 机器人监控未启用或缺少配置，跳过轮询");
+            log.debug("Steam 交易监控未启用或缺少配置，跳过轮询");
             return;
         }
 
@@ -34,9 +34,10 @@ public class SteamTradeMonitorScheduler {
         }
 
         try {
+            tradeOrderService.pollPendingShipmentOrders();
             tradeOrderService.pollOfferingOrders();
         } catch (Exception e) {
-            log.warn("Steam 机器人报价轮询失败: {}", e.getMessage());
+            log.warn("Steam 交易监控轮询失败: {}", e.getMessage());
         } finally {
             polling.set(false);
         }

@@ -52,6 +52,11 @@ public class UserInventory implements Serializable {
     private String instanceId;
 
     /**
+     * Steam Market Hash Name
+     */
+    private String marketHashName;
+
+    /**
      * 物品名称
      */
     private String name;

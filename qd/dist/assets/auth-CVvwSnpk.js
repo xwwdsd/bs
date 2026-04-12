@@ -1,1 +1,0 @@
-import{g as e,p as r}from"./index-BSapntNO.js";const o=t=>r("/v1/auth/login",t),n=t=>r("/v1/auth/register",t),u=t=>r("/v1/auth/forgot-password",{email:t}),g=(t,s)=>r("/v1/auth/reset-password",{token:t,newPassword:s}),v=t=>e("/v1/auth/validate-reset-token",{token:t});export{n as a,u as f,o as l,g as r,v};

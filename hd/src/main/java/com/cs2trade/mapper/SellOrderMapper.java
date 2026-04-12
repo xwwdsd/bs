@@ -123,6 +123,15 @@ public interface SellOrderMapper {
     int updateStatusByInventoryId(@Param("inventoryId") Long inventoryId, @Param("status") Integer status);
 
     /**
+     * Update the item linked to an order.
+     *
+     * @param id     order id
+     * @param itemId item id
+     * @return affected rows
+     */
+    int updateItemId(@Param("id") Long id, @Param("itemId") Long itemId);
+
+    /**
      * 删除指定状态的出售订单
      *
      * @param status 状态

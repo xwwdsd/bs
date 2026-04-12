@@ -36,11 +36,10 @@ public class RegisterRequest {
 
     /**
      * 登录密码
-     * 长度6-20个字符，必须包含字母和数字
+     * 长度6-20个字符
      */
     @NotBlank(message = "密码不能为空")
     @Size(min = 6, max = 20, message = "密码长度必须在6-20个字符之间")
-    @Pattern(regexp = "^(?=.*[a-zA-Z])(?=.*\\d).+$", message = "密码必须同时包含字母和数字")
     private String password;
 
     /**

@@ -9,7 +9,14 @@
   >
     <div class="login-content">
       <h2 class="login-title">{{ isLogin ? '欢迎回来' : '创建账号' }}</h2>
-      <p class="login-subtitle">{{ isLogin ? '登录您的 CS2Trade 账号' : '注册新的 CS2Trade 账号' }}</p>
+      <el-alert
+        v-if="submitSuccessMessage"
+        :title="submitSuccessMessage"
+        type="success"
+        :closable="false"
+        show-icon
+        class="submit-feedback"
+      />
 
       <el-form
         ref="formRef"
@@ -123,6 +130,7 @@ const loading = ref(false)
 const rememberMe = ref(false)
 const formRef = ref(null)
 const showForgotPassword = ref(false)
+const submitSuccessMessage = ref('')
 
 const form = reactive({
   account: '',
@@ -147,7 +155,8 @@ const rules = {
   ],
   username: [
     { required: true, message: '请输入用户名', trigger: 'blur' },
-    { min: 3, max: 20, message: '长度需在 3-20 个字符之间', trigger: 'blur' }
+    { min: 2, max: 20, message: '长度需在 2-20 个字符之间', trigger: 'blur' },
+    { pattern: /^[\u4e00-\u9fa5a-zA-Z0-9_]+$/, message: '用户名只能包含中文、英文、数字和下划线', trigger: 'blur' }
   ],
   email: [
     { required: true, message: '请输入邮箱', trigger: 'blur' },
@@ -180,50 +189,57 @@ const resetForm = () => {
   form.email = ''
   form.password = ''
   form.confirmPassword = ''
+  submitSuccessMessage.value = ''
   isLogin.value = true
 }
 
 const toggleMode = () => {
   isLogin.value = !isLogin.value
+  submitSuccessMessage.value = ''
   formRef.value?.resetFields()
 }
 
 const handleSubmit = async () => {
   if (!formRef.value) return
 
-  await formRef.value.validate(async (valid) => {
-    if (!valid) return
+  const valid = await formRef.value.validate().catch(() => false)
+  if (!valid) return
 
-    loading.value = true
-    try {
-      if (isLogin.value) {
-        const data = await login({
-          account: form.account,
-          password: form.password
-        })
-        userStore.setLoginInfo(data, { rememberMe: rememberMe.value })
-        ElMessage.success('登录成功')
-        visible.value = false
-        emit('success')
-        return
-      }
+  loading.value = true
+  submitSuccessMessage.value = ''
 
-      await register({
-        username: form.username,
-        email: form.email,
+  try {
+    if (isLogin.value) {
+      const data = await login({
+        account: form.account,
         password: form.password
       })
-      ElMessage.success('注册成功，请使用新账号登录')
-      isLogin.value = true
-      form.account = form.username
-      form.password = ''
-      form.confirmPassword = ''
-    } catch (error) {
-      console.error(isLogin.value ? '登录失败:' : '注册失败:', error)
-    } finally {
-      loading.value = false
+      userStore.setLoginInfo(data, { rememberMe: rememberMe.value })
+      ElMessage.success('登录成功')
+      visible.value = false
+      emit('success')
+      return
     }
-  })
+
+    await register({
+      username: form.username,
+      email: form.email,
+      password: form.password,
+      confirmPassword: form.confirmPassword
+    })
+
+    submitSuccessMessage.value = '注册成功，请直接使用刚创建的账号登录。'
+    ElMessage.success('注册成功')
+    isLogin.value = true
+    form.account = form.username
+    form.password = ''
+    form.confirmPassword = ''
+    formRef.value?.clearValidate()
+  } catch (error) {
+    console.error(isLogin.value ? '登录失败:' : '注册失败:', error)
+  } finally {
+    loading.value = false
+  }
 }
 
 const handleForgot = () => {
@@ -240,15 +256,12 @@ const handleForgot = () => {
   font-size: 24px;
   font-weight: 600;
   color: #1a1a2e;
-  margin-bottom: 8px;
+  margin-bottom: 30px;
   text-align: center;
 }
 
-.login-subtitle {
-  font-size: 14px;
-  color: #666;
-  margin-bottom: 30px;
-  text-align: center;
+.submit-feedback {
+  margin-bottom: 20px;
 }
 
 .login-form :deep(.el-input__inner) {

@@ -123,6 +123,12 @@
         WHERE inventory_id = #{inventoryId}
     </update>
 
+    <update id="updateItemId">
+        UPDATE sell_order
+        SET item_id = #{itemId}, updated_at = NOW()
+        WHERE id = #{id}
+    </update>
+
     <!-- 删除指定状态的出售订单 -->
     <delete id="deleteByStatus">
         DELETE FROM sell_order WHERE status = #{status}
@@ -136,7 +142,8 @@
     <!-- 带关联信息的结果映射 -->
     <resultMap id="MarketResultMap" type="com.cs2trade.entity.SellOrder" extends="BaseResultMap">
         <association property="item" javaType="com.cs2trade.entity.Item">
-            <id column="item_id" property="id"/>
+            <id column="resolved_item_id" property="id"/>
+            <result column="item_item_id" property="itemId"/>
             <result column="item_name" property="name"/>
             <result column="item_name_cn" property="nameCn"/>
             <result column="item_category" property="category"/>
@@ -144,10 +151,15 @@
             <result column="item_exterior" property="exterior"/>
             <result column="item_icon_url" property="iconUrl"/>
             <result column="item_buff_price" property="buffPrice"/>
+            <result column="item_steam_reference_price" property="steamReferencePrice"/>
+            <result column="item_steam_reference_currency" property="steamReferenceCurrency"/>
+            <result column="item_steam_reference_price_source" property="steamReferencePriceSource"/>
+            <result column="item_steam_reference_price_updated_at" property="steamReferencePriceUpdatedAt"/>
         </association>
         <association property="inventory" javaType="com.cs2trade.entity.UserInventory">
             <id column="inventory_id" property="id"/>
             <result column="inv_name" property="name"/>
+            <result column="inv_market_hash_name" property="marketHashName"/>
             <result column="inv_icon_url" property="iconUrl"/>
             <result column="inv_exterior" property="exterior"/>
             <result column="inv_paint_wear" property="paintWear"/>
@@ -164,15 +176,25 @@
         SELECT 
             so.id, so.user_id, so.inventory_id, so.item_id, so.price, so.status, 
             so.is_response_to_buy, so.target_buy_order_id, so.expire_time, so.created_at, so.updated_at,
+            i.id as resolved_item_id, i.item_id as item_item_id,
             i.name as item_name, i.name_cn as item_name_cn, i.category as item_category,
             i.quality as item_quality, i.exterior as item_exterior, i.icon_url as item_icon_url,
             i.buff_price as item_buff_price,
-            ui.name as inv_name, ui.icon_url as inv_icon_url, ui.exterior as inv_exterior,
+            i.steam_reference_price as item_steam_reference_price,
+            i.steam_reference_currency as item_steam_reference_currency,
+            i.steam_reference_price_source as item_steam_reference_price_source,
+            i.steam_reference_price_updated_at as item_steam_reference_price_updated_at,
+            ui.name as inv_name, ui.market_hash_name as inv_market_hash_name,
+            ui.icon_url as inv_icon_url, ui.exterior as inv_exterior,
             ui.paint_wear as inv_paint_wear,
             u.username, u.avatar
         FROM sell_order so
-        LEFT JOIN item i ON so.item_id = i.id
         LEFT JOIN user_inventory ui ON so.inventory_id = ui.id
+        LEFT JOIN item inv_item ON ui.item_id = inv_item.id
+        LEFT JOIN item i ON i.id = CASE
+            WHEN inv_item.item_id IS NOT NULL AND inv_item.item_id != 'unknown' THEN ui.item_id
+            ELSE so.item_id
+        END
         LEFT JOIN sys_user u ON so.user_id = u.id
         WHERE so.status = 1
         <if test="category != null and category != ''">
@@ -208,8 +230,12 @@
     <select id="countMarketList" resultType="Long">
         SELECT COUNT(*)
         FROM sell_order so
-        LEFT JOIN item i ON so.item_id = i.id
         LEFT JOIN user_inventory ui ON so.inventory_id = ui.id
+        LEFT JOIN item inv_item ON ui.item_id = inv_item.id
+        LEFT JOIN item i ON i.id = CASE
+            WHEN inv_item.item_id IS NOT NULL AND inv_item.item_id != 'unknown' THEN ui.item_id
+            ELSE so.item_id
+        END
         WHERE so.status = 1
         <if test="category != null and category != ''">
             AND i.sub_category = #{category}

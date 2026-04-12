@@ -32,39 +32,50 @@ request.interceptors.response.use(
       return res.data
     }
 
-    ElMessage.error(res.message || '请求失败')
-    return Promise.reject(new Error(res.message || '请求失败'))
+    const message = res.message || '请求失败'
+    ElMessage.error(message)
+    return Promise.reject(new Error(message))
   },
   (error) => {
     const { response } = error
+    const serverMessage = response?.data?.message
+    let message = '请求失败'
 
     if (response) {
       switch (response.status) {
         case 401: {
-          ElMessage.error('登录已过期，请重新登录')
+          message = serverMessage || '登录已过期，请重新登录'
+          ElMessage.error(message)
           const userStore = useUserStore()
           userStore.logout()
           router.push('/login')
           break
         }
         case 403:
-          ElMessage.error('没有权限访问该资源')
+          message = serverMessage || '没有权限访问该资源'
+          ElMessage.error(message)
           break
         case 404:
-          ElMessage.error('请求的资源不存在')
+          message = serverMessage || '请求的资源不存在'
+          ElMessage.error(message)
           break
         case 500:
-          ElMessage.error('服务器内部错误')
+          message = serverMessage || '服务器内部错误'
+          ElMessage.error(message)
           break
         default:
-          ElMessage.error(response.data?.message || '请求失败')
+          message = serverMessage || '请求失败'
+          ElMessage.error(message)
       }
     } else if (error.code === 'ECONNABORTED') {
-      ElMessage.error('请求超时，请稍后重试')
+      message = '请求超时，请稍后重试'
+      ElMessage.error(message)
     } else {
-      ElMessage.error('网络连接失败，请检查网络')
+      message = '网络连接失败，请检查网络'
+      ElMessage.error(message)
     }
 
+    error.message = message
     return Promise.reject(error)
   }
 )

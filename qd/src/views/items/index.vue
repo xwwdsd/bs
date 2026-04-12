@@ -253,31 +253,33 @@
           <div class="filter-row">
             <div class="filter-group">
               <el-select v-model="filters.quality" placeholder="品质" clearable class="filter-select" @change="handleSearch">
-                <el-option label="不限品质" value="" />
-                <el-option label="违禁" value="Contraband" />
-                <el-option label="隐秘" value="Covert" />
-                <el-option label="保密" value="Classified" />
-                <el-option label="受限" value="Restricted" />
-                <el-option label="军规级" value="MilSpec" />
-                <el-option label="工业级" value="Industrial" />
-                <el-option label="消费级" value="Consumer" />
+                <el-option label="不限" value="" />
+                <el-option
+                  v-for="option in qualityOptions"
+                  :key="option.value"
+                  :label="option.label"
+                  :value="option.value"
+                />
               </el-select>
 
               <el-select v-model="filters.type" placeholder="类别" clearable class="filter-select" @change="handleSearch">
-                <el-option label="不限类别" value="" />
-                <el-option label="普通" value="Normal" />
-                <el-option label="纪念品" value="Souvenir" />
-                <el-option label="StatTrak™" value="StatTrak" />
-                <el-option label="★" value="Star" />
+                <el-option label="不限" value="" />
+                <el-option
+                  v-for="option in typeOptions"
+                  :key="option.value"
+                  :label="option.label"
+                  :value="option.value"
+                />
               </el-select>
 
               <el-select v-model="filters.exterior" placeholder="外观" clearable class="filter-select" @change="handleSearch">
-                <el-option label="不限外观" value="" />
-                <el-option label="崭新出厂" value="FN" />
-                <el-option label="略有磨损" value="MW" />
-                <el-option label="久经沙场" value="FT" />
-                <el-option label="破损不堪" value="WW" />
-                <el-option label="战痕累累" value="BS" />
+                <el-option label="不限" value="" />
+                <el-option
+                  v-for="option in exteriorOptions"
+                  :key="option.value"
+                  :label="option.label"
+                  :value="option.value"
+                />
               </el-select>
             </div>
 
@@ -304,11 +306,11 @@
       </section>
 
       <!-- 市场列表区域 -->
-      <section class="market-section">
-        <div class="market-tabs">
-          <div class="tab-item active">出售</div>
-          <div class="tab-item">求购</div>
-          <div class="tab-right">
+        <section class="market-section">
+          <div class="market-tabs">
+            <div class="tab-item" :class="{ active: marketMode === 'sell' }" @click="switchMarketMode('sell')">出售</div>
+            <div class="tab-item" :class="{ active: marketMode === 'buy' }" @click="switchMarketMode('buy')">求购</div>
+            <div class="tab-right">
             <span class="price-label">¥</span>
             <el-input
               v-model="minPrice"
@@ -333,21 +335,26 @@
         </div>
 
         <div class="items-grid" v-loading="loading">
-          <el-empty v-if="!pagedItems.length && !loading" description="暂无符合条件的在售记录" />
+            <el-empty v-if="!pagedItems.length && !loading" :description="emptyMarketText" />
 
           <div v-for="entry in pagedItems" v-else :key="entry.id" class="item-card" @click="goToDetail(entry)">
             <div class="card-image">
-              <div class="wear-tag">{{ getExteriorText(getItemExterior(entry)) }}</div>
+              <div class="card-badge-row">
+                <div class="wear-tag" :class="getCardBadgeClass(entry)">{{ getCardBadgeText(entry) }}</div>
+                <span v-if="getCardSecondaryBadgeText(entry)" class="type-tag" :class="getCardSecondaryBadgeClass(entry)">
+                  {{ getCardSecondaryBadgeText(entry) }}
+                </span>
+              </div>
               <img :src="getItemIcon(entry)" :alt="getItemName(entry)" />
             </div>
             <div class="card-info">
               <h4 class="card-name">{{ getItemName(entry) }}</h4>
-              <p class="card-meta">{{ getCategoryDisplayText(entry) }}</p>
+              <p class="card-meta">{{ getCardSubtitle(entry) }}</p>
               <div class="card-footer">
                 <p class="card-price">¥ {{ formatPrice(entry.price) }}</p>
-                <span class="seller-text">{{ entry.user?.username || '查看详情' }}</span>
+                  <span class="seller-text">{{ getCounterpartyText(entry) }}</span>
+                </div>
               </div>
-            </div>
           </div>
         </div>
 
@@ -369,16 +376,20 @@
 <script setup>
 import { computed, onMounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
-import { ElMessage } from 'element-plus'
-import { Search, Grid, Aim, Tickets, Connection, Box, Folder, ArrowDown } from '@element-plus/icons-vue'
-import { getMarketList } from '@/api/sellOrder'
+  import { ElMessage } from 'element-plus'
+  import { Search, Grid, Aim, Tickets, Connection, Box, Folder, ArrowDown } from '@element-plus/icons-vue'
+  import { getBuyOrderMarketList } from '@/api/buyOrder'
+  import { getMarketList } from '@/api/sellOrder'
 import LoginModal from '@/components/LoginModal.vue'
 import SiteHeader from '@/components/SiteHeader.vue'
-import { normalizeQualityKey, resolveItemCategory, resolveItemSubCategory, resolveItemType } from '@/utils/itemClassification'
 import {
-  normalizeWearValue,
-  resolveExterior as resolveExteriorCode
-} from '@/utils/itemExterior'
+  QUALITY_TEXT_MAP,
+  TYPE_TEXT_MAP,
+  normalizeQualityKey,
+  resolveItemCategory,
+  resolveItemSubCategory
+} from '@/utils/itemClassification'
+import { getItemDisplayModel } from '@/utils/itemDisplay'
 
 const router = useRouter()
 const showLoginModal = ref(false)
@@ -387,9 +398,10 @@ const items = ref([])
 const page = ref(1)
 const pageSize = ref(20)
 const searchKeyword = ref('')
-const minPrice = ref('')
-const maxPrice = ref('')
-const sortValue = ref('default')
+  const minPrice = ref('')
+  const maxPrice = ref('')
+  const sortValue = ref('default')
+  const marketMode = ref('sell')
 
 const MARKET_FETCH_PAGE_SIZE = 200
 const MARKET_FETCH_MAX_PAGES = 20
@@ -402,6 +414,17 @@ const filters = reactive({
   type: '',
   exterior: ''
 })
+
+const qualityOptions = Object.entries(QUALITY_TEXT_MAP).map(([value, label]) => ({ value, label }))
+const typeOptions = Object.entries(TYPE_TEXT_MAP).map(([value, label]) => ({ value, label }))
+const exteriorOptions = [
+  { value: 'FN', label: '\u5d2d\u65b0\u51fa\u5382' },
+  { value: 'MW', label: '\u7565\u6709\u78e8\u635f' },
+  { value: 'FT', label: '\u4e45\u7ecf\u6c99\u573a' },
+  { value: 'WW', label: '\u7834\u635f\u4e0d\u582a' },
+  { value: 'BS', label: '\u6218\u75d5\u7d2f\u7d2f' },
+  { value: 'NoPaint', label: '\u65e0\u6d82\u88c5' }
+]
 
 const categoryTextMap = {
   rifle: '\u6b65\u67aa',
@@ -514,18 +537,19 @@ const normalizeExterior = (value, ...fallbackTexts) => {
   return normalized
 }
 
-const fetchItems = async () => {
-  loading.value = true
-  try {
-    const merged = []
-    let currentPage = 1
-    let expectedTotal = Number.POSITIVE_INFINITY
+  const fetchItems = async () => {
+    loading.value = true
+    try {
+      const merged = []
+      let currentPage = 1
+      let expectedTotal = Number.POSITIVE_INFINITY
+      const fetcher = marketMode.value === 'buy' ? getBuyOrderMarketList : getMarketList
 
-    while (currentPage <= MARKET_FETCH_MAX_PAGES && merged.length < expectedTotal) {
-      const res = await getMarketList({
-        page: currentPage,
-        size: MARKET_FETCH_PAGE_SIZE,
-        sortField: 'created_at',
+      while (currentPage <= MARKET_FETCH_MAX_PAGES && merged.length < expectedTotal) {
+        const res = await fetcher({
+          page: currentPage,
+          size: MARKET_FETCH_PAGE_SIZE,
+          sortField: 'created_at',
         sortOrder: 'DESC'
       })
 
@@ -542,15 +566,23 @@ const fetchItems = async () => {
 
     items.value = merged
   } catch (error) {
-    ElMessage.error(error?.message || '获取市场列表失败')
+      ElMessage.error(error?.message || '获取市场列表失败')
   } finally {
     loading.value = false
   }
 }
 
-const handleSearch = () => {
-  page.value = 1
-}
+  const handleSearch = () => {
+    page.value = 1
+  }
+
+  const switchMarketMode = async (mode) => {
+    if (marketMode.value === mode) return
+    marketMode.value = mode
+    page.value = 1
+    items.value = []
+    await fetchItems()
+  }
 
 const resetFilters = () => {
   searchKeyword.value = ''
@@ -569,32 +601,41 @@ const handlePageChange = (current) => {
   page.value = current
 }
 
-const goToDetail = (entry) => {
-  router.push(`/items/order/${entry.id}`)
-}
+  const goToDetail = (entry) => {
+    if (marketMode.value === 'buy') {
+      router.push(`/items/${entry.itemId}`)
+      return
+    }
+    router.push(`/items/order/${entry.id}`)
+  }
 
-const getItemName = (entry) => entry.inventory?.name || entry.item?.nameCn || entry.item?.name || '\u672a\u77e5\u9970\u54c1'
-const getItemIcon = (entry) => entry.inventory?.iconUrl || entry.item?.iconUrl || '/default-item.png'
-const getItemExterior = (entry) =>
-  resolveExteriorCode(
-    normalizeWearValue(entry?.inventory?.paintWear ?? entry?.paintWear),
-    entry.inventory?.exterior || entry.inventory?.wearName || entry.item?.exterior,
-    entry.inventory?.name,
-    entry.item?.nameCn,
-    entry.item?.name
-  )
+  const getItemName = (entry) => entry.inventory?.name || entry.item?.nameCn || entry.item?.name || '\u672a\u77e5\u9970\u54c1'
+  const getItemIcon = (entry) => entry.inventory?.iconUrl || entry.item?.iconUrl || '/default-item.png'
+const getEntryDisplayModel = (entry) => getItemDisplayModel(entry)
+const getItemExterior = (entry) => getEntryDisplayModel(entry).filterExterior
 const getCategoryText = (value) => resolvedCategoryTextMap[value] || categoryTextMap[value] || value || '\u5176\u4ed6'
 const getExteriorText = (value) => resolvedExteriorTextMap[value] || exteriorTextMap[value] || value || '\u672a\u77e5\u5916\u89c2'
-const formatPrice = (price) => Number(price || 0).toFixed(2)
+  const formatPrice = (price) => Number(price || 0).toFixed(2)
+  const getCounterpartyText = (entry) =>
+    entry.user?.username || (marketMode.value === 'buy' ? '\u67e5\u770b\u6c42\u8d2d' : '\u67e5\u770b\u8be6\u60c5')
 const getResolvedCategory = (entry) => resolveItemCategory(entry)
 const getResolvedSubCategory = (entry) => resolveItemSubCategory(entry)
-const getResolvedQuality = (entry) => normalizeQualityKey(normalizeRarity(entry.inventory?.rarity || entry.item?.quality || entry.item?.rarity))
-const getResolvedTypeValue = (entry) => resolveItemType(entry)
-const getCategoryDisplayText = (entry) => {
-  const category = getResolvedCategory(entry)
-  const subCategoryText = resolvedSubCategoryTextMap[getResolvedSubCategory(entry)]
-  return category === 'other' && subCategoryText ? subCategoryText : getCategoryText(category)
+const getResolvedQuality = (entry) => getEntryDisplayModel(entry).resolvedQuality
+const getResolvedTypeValue = (entry) => getEntryDisplayModel(entry).resolvedType
+const getCardBadgeText = (entry) => getEntryDisplayModel(entry).primaryBadge.text
+const getCardBadgeClass = (entry) => {
+  const badge = getEntryDisplayModel(entry).primaryBadge
+  if (!badge) return 'wear-tag-UN'
+  if (badge.kind === 'quality') return `wear-tag-quality-${badge.code}`
+  if (badge.kind === 'category') return `wear-tag-category-${badge.code || 'other'}`
+  return `wear-tag-${badge.code || 'UN'}`
 }
+const getCardSecondaryBadgeText = (entry) => getEntryDisplayModel(entry).secondaryBadge?.text || ''
+const getCardSecondaryBadgeClass = (entry) => {
+  const badge = getEntryDisplayModel(entry).secondaryBadge
+  return badge ? `type-tag-${badge.code}` : ''
+}
+const getCardSubtitle = (entry) => getEntryDisplayModel(entry).subtitle
 const filteredItems = computed(() => {
   let list = [...items.value]
 
@@ -662,7 +703,8 @@ const filteredItems = computed(() => {
   return list
 })
 
-const total = computed(() => filteredItems.value.length)
+  const total = computed(() => filteredItems.value.length)
+  const emptyMarketText = computed(() => (marketMode.value === 'buy' ? '\u6682\u65e0\u7b26\u5408\u6761\u4ef6\u7684\u6c42\u8d2d\u8bb0\u5f55' : '\u6682\u65e0\u7b26\u5408\u6761\u4ef6\u7684\u5728\u552e\u8bb0\u5f55'))
 const pagedItems = computed(() => {
   const start = (page.value - 1) * pageSize.value
   return filteredItems.value.slice(start, start + pageSize.value)
@@ -1009,15 +1051,159 @@ onMounted(() => {
   object-fit: contain;
 }
 
-.wear-tag {
+.card-badge-row {
   position: absolute;
   left: 8px;
+  right: 8px;
   top: 8px;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.wear-tag {
   padding: 5px 8px;
   border-radius: 999px;
   background: #5d8a42;
   color: #fff;
   font-size: 12px;
+}
+
+.wear-tag-FN {
+  background: #329545;
+}
+
+.wear-tag-MW {
+  background: #5d9545;
+}
+
+.wear-tag-FT {
+  background: #efab3d;
+}
+
+.wear-tag-WW {
+  background: #8c8f96;
+}
+
+.wear-tag-BS {
+  background: #c85050;
+}
+
+.wear-tag-NoPaint {
+  background: #f3f4f6;
+  color: #334155;
+}
+
+.wear-tag-category-sticker,
+.wear-tag-category-music {
+  background: #2563eb;
+}
+
+.wear-tag-category-graffiti {
+  background: #7c3aed;
+}
+
+.wear-tag-category-charm {
+  background: #0f766e;
+}
+
+.wear-tag-category-agent {
+  background: #16a34a;
+}
+
+.wear-tag-category-case {
+  background: #475569;
+}
+
+.wear-tag-category-tool {
+  background: #0f766e;
+}
+
+.wear-tag-category-pass {
+  background: #7c2d12;
+}
+
+.wear-tag-category-collectible {
+  background: #7c3aed;
+}
+
+.wear-tag-quality-contraband {
+  background: #f5df4d;
+  color: #1f2937;
+}
+
+.wear-tag-quality-covert {
+  background: #d9485f;
+}
+
+.wear-tag-quality-classified {
+  background: #c84cff;
+}
+
+.wear-tag-quality-restricted {
+  background: #8b5cf6;
+}
+
+.wear-tag-quality-mil-spec {
+  background: #3b82f6;
+}
+
+.wear-tag-quality-industrial {
+  background: #60a5fa;
+}
+
+.wear-tag-quality-consumer {
+  background: #94a3b8;
+}
+
+.wear-tag-quality-extraordinary {
+  background: #f97316;
+}
+
+.wear-tag-quality-exotic {
+  background: #a855f7;
+}
+
+.wear-tag-quality-remarkable {
+  background: #ec4899;
+}
+
+.wear-tag-quality-high-grade {
+  background: #4f8ef7;
+}
+
+.wear-tag-quality-normal-grade {
+  background: #e5e7eb;
+  color: #1f2937;
+}
+
+.wear-tag-quality-agent-grade {
+  background: #22c55e;
+}
+
+.type-tag {
+  display: inline-flex;
+  align-items: center;
+  height: 26px;
+  padding: 0 10px;
+  border-radius: 999px;
+  background: rgba(15, 21, 34, 0.95);
+  color: #ff8f1f;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.type-tag-Souvenir {
+  color: #fbbf24;
+}
+
+.type-tag-Star {
+  color: #f8fafc;
+}
+
+.type-tag-StarStatTrak {
+  color: #ffb347;
 }
 
 .item-icons {
@@ -1054,6 +1240,7 @@ onMounted(() => {
   margin: 0 0 8px;
   color: #6b7280;
   font-size: 13px;
+  line-height: 1.4;
 }
 
 .card-footer {

@@ -161,7 +161,7 @@ const router = createRouter({
 })
 
 router.beforeEach((to, from, next) => {
-  document.title = to.meta.title ? `${to.meta.title} - CS2Trade` : 'CS2Trade'
+  document.title = to.meta.title || '饰品交易平台'
 
   const userStore = useUserStore()
 

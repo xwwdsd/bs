@@ -1,1 +1,0 @@
-import{g as n,p as t,d as r,a}from"./index-BSapntNO.js";function w(e){return n("/v1/news",{category:e})}function o(){return n("/v1/news/my")}function c(e){return t("/v1/news",e)}function f(e,s){return a(`/v1/news/${e}`,s)}function i(e){return r(`/v1/news/${e}`)}export{o as a,c,i as d,w as g,f as u};

@@ -25,6 +25,10 @@
         <result column="inspect_link_template" property="inspectLinkTemplate"/>
         <result column="steam_market_url" property="steamMarketUrl"/>
         <result column="buff_price" property="buffPrice"/>
+        <result column="steam_reference_price" property="steamReferencePrice"/>
+        <result column="steam_reference_currency" property="steamReferenceCurrency"/>
+        <result column="steam_reference_price_source" property="steamReferencePriceSource"/>
+        <result column="steam_reference_price_updated_at" property="steamReferencePriceUpdatedAt"/>
         <result column="is_active" property="isActive"/>
         <result column="created_at" property="createdAt"/>
         <result column="updated_at" property="updatedAt"/>
@@ -33,7 +37,9 @@
     <!-- 基础列列表 -->
     <sql id="Base_Column_List">
         id, item_id, name, name_cn, category, sub_category, quality, rarity, exterior,
-        icon_url, inspect_link_template, steam_market_url, buff_price, is_active, created_at, updated_at
+        icon_url, inspect_link_template, steam_market_url, buff_price,
+        steam_reference_price, steam_reference_currency, steam_reference_price_source, steam_reference_price_updated_at,
+        is_active, created_at, updated_at
     </sql>
 
     <!-- 根据ID查询饰品 -->
@@ -79,13 +85,24 @@
         <if test="keyword != null and keyword != ''">
             AND (name LIKE CONCAT('%', #{keyword}, '%') OR name_cn LIKE CONCAT('%', #{keyword}, '%'))
         </if>
+        ORDER BY
         <choose>
-            <when test="sortField != null and sortField != ''">
-                ORDER BY ${sortField} ${sortOrder}
-            </when>
-            <otherwise>
-                ORDER BY created_at DESC
-            </otherwise>
+            <when test="sortField == 'id' and sortOrder == 'ASC'">id ASC</when>
+            <when test="sortField == 'id' and sortOrder == 'DESC'">id DESC</when>
+            <when test="sortField == 'name' and sortOrder == 'ASC'">name ASC</when>
+            <when test="sortField == 'name' and sortOrder == 'DESC'">name DESC</when>
+            <when test="sortField == 'name_cn' and sortOrder == 'ASC'">name_cn ASC</when>
+            <when test="sortField == 'name_cn' and sortOrder == 'DESC'">name_cn DESC</when>
+            <when test="sortField == 'buff_price' and sortOrder == 'ASC'">buff_price ASC</when>
+            <when test="sortField == 'buff_price' and sortOrder == 'DESC'">buff_price DESC</when>
+            <when test="sortField == 'steam_reference_price' and sortOrder == 'ASC'">steam_reference_price ASC</when>
+            <when test="sortField == 'steam_reference_price' and sortOrder == 'DESC'">steam_reference_price DESC</when>
+            <when test="sortField == 'reference_price' and sortOrder == 'ASC'">COALESCE(steam_reference_price, buff_price, 0) ASC</when>
+            <when test="sortField == 'reference_price' and sortOrder == 'DESC'">COALESCE(steam_reference_price, buff_price, 0) DESC</when>
+            <when test="sortField == 'updated_at' and sortOrder == 'ASC'">updated_at ASC</when>
+            <when test="sortField == 'updated_at' and sortOrder == 'DESC'">updated_at DESC</when>
+            <when test="sortField == 'created_at' and sortOrder == 'ASC'">created_at ASC</when>
+            <otherwise>created_at DESC</otherwise>
         </choose>
         LIMIT #{limit} OFFSET #{offset}
     </select>
@@ -113,10 +130,14 @@
     <insert id="insert" useGeneratedKeys="true" keyProperty="id">
         INSERT INTO item (
             item_id, name, name_cn, category, sub_category, quality, rarity, exterior,
-            icon_url, inspect_link_template, steam_market_url, buff_price, is_active, created_at, updated_at
+            icon_url, inspect_link_template, steam_market_url, buff_price,
+            steam_reference_price, steam_reference_currency, steam_reference_price_source, steam_reference_price_updated_at,
+            is_active, created_at, updated_at
         ) VALUES (
             #{itemId}, #{name}, #{nameCn}, #{category}, #{subCategory}, #{quality}, #{rarity}, #{exterior},
-            #{iconUrl}, #{inspectLinkTemplate}, #{steamMarketUrl}, #{buffPrice}, #{isActive}, NOW(), NOW()
+            #{iconUrl}, #{inspectLinkTemplate}, #{steamMarketUrl}, #{buffPrice},
+            #{steamReferencePrice}, #{steamReferenceCurrency}, #{steamReferencePriceSource}, #{steamReferencePriceUpdatedAt},
+            #{isActive}, NOW(), NOW()
         )
     </insert>
 
@@ -136,6 +157,10 @@
             <if test="inspectLinkTemplate != null">inspect_link_template = #{inspectLinkTemplate},</if>
             <if test="steamMarketUrl != null">steam_market_url = #{steamMarketUrl},</if>
             <if test="buffPrice != null">buff_price = #{buffPrice},</if>
+            <if test="steamReferencePrice != null">steam_reference_price = #{steamReferencePrice},</if>
+            <if test="steamReferenceCurrency != null">steam_reference_currency = #{steamReferenceCurrency},</if>
+            <if test="steamReferencePriceSource != null">steam_reference_price_source = #{steamReferencePriceSource},</if>
+            <if test="steamReferencePriceUpdatedAt != null">steam_reference_price_updated_at = #{steamReferencePriceUpdatedAt},</if>
             <if test="isActive != null">is_active = #{isActive},</if>
             updated_at = NOW()
         </set>

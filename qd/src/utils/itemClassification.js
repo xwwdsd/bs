@@ -94,10 +94,35 @@ const WEAPON_RULES = [
 ]
 
 const TYPE_RULES = [
+  { type: 'StarStatTrak', aliases: ['★ stattrak', 'stattrak ★', 'star stattrak', 'star_stattrak', 'starstattrak'] },
   { type: 'StatTrak', aliases: ['stattrak'] },
   { type: 'Souvenir', aliases: ['souvenir', '\u7eaa\u5ff5\u54c1'] },
   { type: 'Star', aliases: ['\u2605', 'star'] }
 ]
+
+export const QUALITY_TEXT_MAP = {
+  contraband: '\u8fdd\u7981',
+  covert: '\u9690\u79d8',
+  classified: '\u4fdd\u5bc6',
+  restricted: '\u53d7\u9650',
+  'mil-spec': '\u519b\u89c4\u7ea7',
+  industrial: '\u5de5\u4e1a\u7ea7',
+  consumer: '\u6d88\u8d39\u7ea7',
+  extraordinary: '\u975e\u51e1',
+  exotic: '\u5353\u8d8a',
+  remarkable: '\u5947\u5f02',
+  'high-grade': '\u9ad8\u7ea7',
+  'normal-grade': '\u666e\u901a\u7ea7',
+  'agent-grade': '\u63a2\u5458\u54c1\u8d28'
+}
+
+export const TYPE_TEXT_MAP = {
+  Normal: '\u666e\u901a',
+  Souvenir: '\u7eaa\u5ff5\u54c1',
+  StatTrak: 'StatTrak\u2122',
+  Star: '\u2605',
+  StarStatTrak: '\u2605 StatTrak\u2122'
+}
 
 const SPECIAL_OTHER_SUBCATEGORY_TEXTS = {
   case: ['\u6b66\u5668\u7bb1', '\u6b66\u5668\u7bb1\u5b50', 'case', 'capsule', '\u80f6\u56ca'],
@@ -130,6 +155,26 @@ const normalizeKey = (value) =>
     .trim()
     .toLowerCase()
     .replace(/[-\s]+/g, '_')
+
+const normalizeExplicitType = (value) => {
+  const rawText = String(value ?? '').normalize('NFKC').trim()
+  if (!rawText) {
+    return ''
+  }
+
+  const normalizedText = normalizeText(rawText)
+  const normalizedKey = normalizeKey(rawText)
+  const hasStar = rawText.includes('\u2605') || normalizedText.includes('★') || /\bstar\b/.test(normalizedText)
+  const hasStatTrak = normalizedText.includes('stattrak') || normalizedKey.includes('stattrak')
+
+  if (hasStar && hasStatTrak) return 'StarStatTrak'
+  if (hasStatTrak) return 'StatTrak'
+  if (normalizedText.includes('souvenir') || normalizedKey === 'souvenir') return 'Souvenir'
+  if (hasStar) return 'Star'
+  if (['normal', 'ordinary', 'default', 'none'].includes(normalizedKey)) return 'Normal'
+
+  return ''
+}
 
 const getCandidateTexts = (source) => {
   if (!source) return []
@@ -293,6 +338,24 @@ const getExplicitSubCategory = (source) => {
   return EXPLICIT_SUBCATEGORY_MAP[explicitCategory] || ''
 }
 
+const getExplicitType = (source) => {
+  const candidates = [
+    source?.type,
+    source?.inventory?.type,
+    source?.item?.type,
+    source?.inventory?.item?.type
+  ]
+
+  for (const value of candidates) {
+    const normalized = normalizeExplicitType(value)
+    if (normalized) {
+      return normalized
+    }
+  }
+
+  return ''
+}
+
 const inferClassification = (source) => {
   const texts = getCandidateTexts(source)
   return inferSpecialCategory(texts) || inferWeaponCategory(texts)
@@ -318,9 +381,23 @@ export const resolveItemSubCategory = (source) => {
 }
 
 export const resolveItemType = (source) => {
-  const combined = getCandidateTexts(source).map(normalizeText).join(' ')
-  if (!combined) {
+  const explicit = getExplicitType(source)
+  if (explicit) {
+    return explicit
+  }
+
+  const texts = getCandidateTexts(source)
+  const combined = texts.map(normalizeText).join(' ')
+  const original = texts.join(' ')
+  const hasStar = original.includes('\u2605') || combined.includes('★') || /\bstar\b/.test(combined)
+  const hasStatTrak = combined.includes('stattrak')
+
+  if (!combined && !original) {
     return 'Normal'
+  }
+
+  if (hasStar && hasStatTrak) {
+    return 'StarStatTrak'
   }
 
   for (const rule of TYPE_RULES) {
@@ -336,19 +413,123 @@ export const normalizeQualityKey = (value) => {
   const normalized = String(value || '')
     .trim()
     .toLowerCase()
-    .replace(/[_\s]/g, '')
+    .replace(/[_\s-]/g, '')
 
   const map = {
+    ancient: 'contraband',
     contraband: 'contraband',
+    legendary: 'covert',
     covert: 'covert',
+    mythical: 'classified',
     classified: 'classified',
+    rare: 'restricted',
     restricted: 'restricted',
+    uncommon: 'mil-spec',
     milspec: 'mil-spec',
     'mil-spec': 'mil-spec',
+    milspecgrade: 'mil-spec',
     industrial: 'industrial',
+    industrialgrade: 'industrial',
     consumer: 'consumer',
-    common: 'consumer'
+    consumergrade: 'consumer',
+    common: 'consumer',
+    immortal: 'extraordinary',
+    extraordinary: 'extraordinary',
+    exotic: 'exotic',
+    remarkable: 'remarkable',
+    highgrade: 'high-grade',
+    superior: 'high-grade',
+    basegrade: 'normal-grade',
+    normalgrade: 'normal-grade',
+    distinguished: 'agent-grade',
+    exceptional: 'agent-grade',
+    master: 'agent-grade',
+    agentgrade: 'agent-grade'
   }
 
   return map[normalized] || normalized
+}
+
+const QUALITY_INFERENCE_RULES = [
+  { key: 'contraband', aliases: ['违禁', 'contraband', 'ancient'] },
+  { key: 'covert', aliases: ['隐秘', 'covert', 'legendary'] },
+  { key: 'classified', aliases: ['保密', 'classified', 'mythical'] },
+  { key: 'restricted', aliases: ['受限', 'restricted', 'rare'] },
+  { key: 'mil-spec', aliases: ['军规级', 'mil-spec', 'mil spec', 'uncommon'] },
+  { key: 'industrial', aliases: ['工业级', 'industrial', 'industrial grade'] },
+  { key: 'consumer', aliases: ['消费级', 'consumer', 'consumer grade'] },
+  { key: 'extraordinary', aliases: ['非凡', 'extraordinary', 'immortal'] },
+  { key: 'exotic', aliases: ['卓越', 'exotic'] },
+  { key: 'remarkable', aliases: ['奇异', 'remarkable'] },
+  { key: 'high-grade', aliases: ['高级', 'high grade', 'high-grade', 'superior'] },
+  { key: 'normal-grade', aliases: ['普通级', 'base grade', 'base-grade', 'normal grade', 'normal-grade'] },
+  { key: 'agent-grade', aliases: ['探员品质', 'distinguished', 'exceptional', 'master', 'agent grade'] }
+]
+
+export const inferQualityFromTexts = (...values) => {
+  const combined = values
+    .flatMap((value) => (Array.isArray(value) ? value : [value]))
+    .filter(Boolean)
+    .map((value) => normalizeText(value))
+    .join(' ')
+
+  if (!combined) {
+    return ''
+  }
+
+  for (const rule of QUALITY_INFERENCE_RULES) {
+    if (rule.aliases.some((alias) => combined.includes(normalizeText(alias)))) {
+      return rule.key
+    }
+  }
+
+  return ''
+}
+
+export const resolveItemQuality = (source) => {
+  const directCandidates = [
+    source?.inventory?.rarity,
+    source?.rarity,
+    source?.inventory?.item?.rarity,
+    source?.item?.rarity
+  ]
+
+  for (const value of directCandidates) {
+    const normalized = normalizeQualityKey(value)
+    if (normalized) {
+      return normalized
+    }
+  }
+
+  const inferred = inferQualityFromTexts(...getCandidateTexts(source))
+  if (inferred) {
+    return inferred
+  }
+
+  const fallbackCandidates = [
+    source?.inventory?.item?.quality,
+    source?.item?.quality,
+    source?.inventory?.quality,
+    source?.quality
+  ]
+
+  for (const value of fallbackCandidates) {
+    const normalized = normalizeQualityKey(value)
+    if (normalized) {
+      return normalized
+    }
+  }
+
+  return ''
+}
+
+export const shouldUseNoPaintExterior = (source) => {
+  const category = resolveItemCategory(source)
+  const subCategory = resolveItemSubCategory(source)
+
+  if (['sticker', 'charm', 'agent'].includes(category)) {
+    return true
+  }
+
+  return ['graffiti', 'music', 'case', 'tool', 'pass', 'collectible'].includes(subCategory)
 }

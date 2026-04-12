@@ -16,6 +16,8 @@ hd/.mvn/wrapper/maven-wrapper.jar
 
 # Node.js/Frontend
 qd/node_modules/
+qd/node_modules/.vite/
+qd/.vite/
 qd/dist/
 qd/npm-debug.log*
 qd/yarn-debug.log*

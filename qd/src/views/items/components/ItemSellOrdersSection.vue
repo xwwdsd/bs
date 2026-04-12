@@ -1,6 +1,6 @@
 <template>
-  <section id="sell-orders" class="sell-section" v-loading="loading">
-    <div class="section-toolbar">
+  <section id="sell-orders" class="sell-section" :class="{ compact }" v-loading="loading">
+    <div v-if="!hideHeader" class="section-toolbar">
       <div class="section-tab active">{{ text.currentOnSale }}</div>
       <span class="section-count">{{ orders.length }} {{ text.saleRecordSuffix }}</span>
     </div>
@@ -28,17 +28,24 @@
           </div>
           <div class="item-copy">
             <strong>{{ getItemName(order) }}</strong>
-            <span>{{ getCollectionTypeLabel(order) }} &middot; {{ getExteriorText(getItemExterior(order)) }}</span>
+            <span>{{ getOrderSubtitle(order) }}</span>
           </div>
         </div>
 
         <div class="table-cell wear-cell" @click="$emit('select-order', order.id)">
-          <p class="wear-value">{{ text.wear }}: {{ getWearDisplay(order) }}</p>
-          <div v-if="hasWearVisual(order)" class="wear-bar">
+          <p v-if="shouldShowWearInfo(order)" class="wear-value">{{ text.wear }}: {{ getWearDisplay(order) }}</p>
+          <div v-if="shouldShowWearInfo(order) && hasWearVisual(order)" class="wear-bar">
             <span class="wear-marker" :style="{ left: `${getWearPercent(order)}%` }"></span>
           </div>
-          <div class="status-row">
-            <span class="status-pill">{{ getExteriorText(getItemExterior(order)) }}</span>
+          <div class="status-row" :class="{ compact: !shouldShowWearInfo(order) }">
+            <span class="status-pill" :class="getOrderPrimaryBadgeClass(order)">{{ getOrderPrimaryBadgeText(order) }}</span>
+            <span
+              v-if="getOrderSecondaryBadgeText(order)"
+              class="status-pill status-pill-type"
+              :class="getOrderSecondaryBadgeClass(order)"
+            >
+              {{ getOrderSecondaryBadgeText(order) }}
+            </span>
             <span class="status-pill" :class="{ warn: getOrderStatus(order).tone === 'warn' }">
               {{ getOrderStatus(order).text }}
             </span>
@@ -78,8 +85,18 @@
 </template>
 
 <script setup>
+import { getItemDisplayModel } from '@/utils/itemDisplay'
+
 defineProps({
   loading: {
+    type: Boolean,
+    default: false
+  },
+  compact: {
+    type: Boolean,
+    default: false
+  },
+  hideHeader: {
     type: Boolean,
     default: false
   },
@@ -154,6 +171,23 @@ defineProps({
 })
 
 defineEmits(['select-order', 'bargain', 'buy'])
+
+const getOrderDisplayModel = (order) => getItemDisplayModel(order)
+const shouldShowWearInfo = (order) => getOrderDisplayModel(order).showWearModule
+const getOrderSubtitle = (order) => getOrderDisplayModel(order).subtitle
+const getOrderPrimaryBadgeText = (order) => getOrderDisplayModel(order).primaryBadge.text
+const getOrderPrimaryBadgeClass = (order) => {
+  const badge = getOrderDisplayModel(order).primaryBadge
+  if (!badge) return ''
+  if (badge.kind === 'quality') return `status-pill-quality-${badge.code}`
+  if (badge.kind === 'category') return `status-pill-category-${badge.code || 'other'}`
+  return `status-pill-exterior-${badge.code || 'UN'}`
+}
+const getOrderSecondaryBadgeText = (order) => getOrderDisplayModel(order).secondaryBadge?.text || ''
+const getOrderSecondaryBadgeClass = (order) => {
+  const badge = getOrderDisplayModel(order).secondaryBadge
+  return badge ? `status-pill-type-${badge.code}` : ''
+}
 </script>
 
 <style scoped>
@@ -322,6 +356,10 @@ defineEmits(['select-order', 'bargain', 'buy'])
   margin-top: 12px;
 }
 
+.status-row.compact {
+  margin-top: 0;
+}
+
 .status-pill {
   display: inline-flex;
   align-items: center;
@@ -342,6 +380,142 @@ defineEmits(['select-order', 'bargain', 'buy'])
 .status-pill.current {
   background: rgba(59, 130, 246, 0.12);
   color: #2563eb;
+}
+
+.status-pill-type {
+  background: rgba(15, 23, 42, 0.94);
+  color: #ff8f1f;
+}
+
+.status-pill-type-Souvenir {
+  color: #fbbf24;
+}
+
+.status-pill-type-Star {
+  color: #ffffff;
+}
+
+.status-pill-type-StarStatTrak {
+  color: #ffb347;
+}
+
+.status-pill-exterior-FN {
+  background: rgba(34, 197, 94, 0.14);
+  color: #15803d;
+}
+
+.status-pill-exterior-MW {
+  background: rgba(132, 204, 22, 0.14);
+  color: #65a30d;
+}
+
+.status-pill-exterior-FT {
+  background: rgba(245, 158, 11, 0.14);
+  color: #d97706;
+}
+
+.status-pill-exterior-WW {
+  background: rgba(100, 116, 139, 0.16);
+  color: #475569;
+}
+
+.status-pill-exterior-BS {
+  background: rgba(239, 68, 68, 0.12);
+  color: #dc2626;
+}
+
+.status-pill-quality-contraband {
+  background: rgba(245, 223, 77, 0.26);
+  color: #854d0e;
+}
+
+.status-pill-quality-covert {
+  background: rgba(244, 63, 94, 0.14);
+  color: #be123c;
+}
+
+.status-pill-quality-classified {
+  background: rgba(192, 38, 211, 0.14);
+  color: #a21caf;
+}
+
+.status-pill-quality-restricted {
+  background: rgba(139, 92, 246, 0.14);
+  color: #7c3aed;
+}
+
+.status-pill-quality-mil-spec {
+  background: rgba(59, 130, 246, 0.14);
+  color: #2563eb;
+}
+
+.status-pill-quality-industrial {
+  background: rgba(96, 165, 250, 0.18);
+  color: #2563eb;
+}
+
+.status-pill-quality-consumer {
+  background: rgba(148, 163, 184, 0.18);
+  color: #475569;
+}
+
+.status-pill-quality-extraordinary {
+  background: rgba(249, 115, 22, 0.16);
+  color: #c2410c;
+}
+
+.status-pill-quality-exotic {
+  background: rgba(168, 85, 247, 0.16);
+  color: #9333ea;
+}
+
+.status-pill-quality-remarkable {
+  background: rgba(236, 72, 153, 0.14);
+  color: #db2777;
+}
+
+.status-pill-quality-high-grade {
+  background: rgba(79, 142, 247, 0.16);
+  color: #2563eb;
+}
+
+.status-pill-quality-normal-grade {
+  background: rgba(226, 232, 240, 0.9);
+  color: #334155;
+}
+
+.status-pill-quality-agent-grade,
+.status-pill-category-agent {
+  background: rgba(34, 197, 94, 0.14);
+  color: #15803d;
+}
+
+.status-pill-category-sticker,
+.status-pill-category-music {
+  background: rgba(37, 99, 235, 0.14);
+  color: #1d4ed8;
+}
+
+.status-pill-category-graffiti,
+.status-pill-category-collectible {
+  background: rgba(124, 58, 237, 0.14);
+  color: #7c3aed;
+}
+
+.status-pill-category-charm,
+.status-pill-category-tool {
+  background: rgba(15, 118, 110, 0.14);
+  color: #0f766e;
+}
+
+.status-pill-category-case {
+  background: rgba(71, 85, 105, 0.16);
+  color: #475569;
+}
+
+.status-pill-category-pass {
+  background: rgba(124, 45, 18, 0.12);
+  color: #9a3412;
 }
 
 .seller-cell {
@@ -382,6 +556,34 @@ defineEmits(['select-order', 'bargain', 'buy'])
   margin-left: 0;
   border-radius: 10px;
   font-weight: 700;
+}
+
+.sell-section.compact .sell-table-head {
+  display: none;
+}
+
+.sell-section.compact .sell-row {
+  grid-template-columns: 1fr;
+  gap: 14px;
+  padding: 18px 20px;
+}
+
+.sell-section.compact .item-copy {
+  display: block;
+}
+
+.sell-section.compact .item-thumb {
+  width: 120px;
+  height: 86px;
+}
+
+.sell-section.compact .item-thumb img {
+  max-width: 98px;
+  max-height: 64px;
+}
+
+.sell-section.compact .action-cell {
+  flex-direction: row;
 }
 
 @media (max-width: 1120px) {

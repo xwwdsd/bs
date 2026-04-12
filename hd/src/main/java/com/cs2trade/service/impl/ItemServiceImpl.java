@@ -16,6 +16,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.time.temporal.ChronoUnit;
@@ -26,6 +27,8 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 @Slf4j
 @Service
@@ -38,6 +41,9 @@ public class ItemServiceImpl implements ItemService {
     private static final String STATUS_COMPLETED = "COMPLETED";
     private static final String STATUS_PARTIAL = "PARTIAL";
     private static final String STATUS_FAILED = "FAILED";
+    private static final String STEAM_REFERENCE_CURRENCY = "CNY";
+    private static final String STEAM_REFERENCE_PRICE_SOURCE = "steam_market_search";
+    private static final Pattern PRICE_TEXT_PATTERN = Pattern.compile("(\\d+(?:\\.\\d{1,2})?)");
 
     private static final int LEGACY_STEAM_PAGE_SIZE = 10;
     private static final DateTimeFormatter COOLDOWN_TIME_FORMATTER = DateTimeFormatter.ofPattern("HH:mm:ss");
@@ -64,12 +70,8 @@ public class ItemServiceImpl implements ItemService {
         if (size == null || size < 1) {
             size = 20;
         }
-        if (sortField == null || sortField.isEmpty()) {
-            sortField = "created_at";
-        }
-        if (sortOrder == null || sortOrder.isEmpty()) {
-            sortOrder = "DESC";
-        }
+        sortField = normalizeItemSortField(sortField);
+        sortOrder = normalizeSortOrder(sortOrder);
 
         int offset = (page - 1) * size;
         long total = itemMapper.selectCount(category, exterior, quality, keyword);
@@ -77,6 +79,22 @@ public class ItemServiceImpl implements ItemService {
                 sortField, sortOrder, offset, size);
 
         return PageResult.of(page, size, total, list);
+    }
+
+    private String normalizeItemSortField(String sortField) {
+        if (sortField == null || sortField.isBlank()) {
+            return "created_at";
+        }
+
+        return switch (sortField.trim()) {
+            case "id", "name", "name_cn", "created_at", "updated_at", "buff_price", "steam_reference_price" -> sortField.trim();
+            case "price", "buffPrice", "marketPrice", "steamReferencePrice" -> "reference_price";
+            default -> "created_at";
+        };
+    }
+
+    private String normalizeSortOrder(String sortOrder) {
+        return "ASC".equalsIgnoreCase(sortOrder) ? "ASC" : "DESC";
     }
 
     @Override
@@ -711,15 +729,22 @@ public class ItemServiceImpl implements ItemService {
         return "";
     }
 
-    private boolean needsUpdate(Item existingItem, Item latestItem) {
+    boolean needsUpdate(Item existingItem, Item latestItem) {
         return !Objects.equals(existingItem.getName(), latestItem.getName())
                 || !Objects.equals(existingItem.getNameCn(), latestItem.getNameCn())
                 || !Objects.equals(existingItem.getIconUrl(), latestItem.getIconUrl())
                 || !Objects.equals(existingItem.getCategory(), latestItem.getCategory())
-                || !Objects.equals(existingItem.getBuffPrice(), latestItem.getBuffPrice());
+                || hasNewSteamReferencePrice(existingItem, latestItem);
     }
 
-    private Item parseSteamItem(JSONObject itemJson) {
+    private boolean hasNewSteamReferencePrice(Item existingItem, Item latestItem) {
+        return latestItem.getSteamReferencePrice() != null
+                && (!Objects.equals(existingItem.getSteamReferencePrice(), latestItem.getSteamReferencePrice())
+                || !Objects.equals(existingItem.getSteamReferenceCurrency(), latestItem.getSteamReferenceCurrency())
+                || !Objects.equals(existingItem.getSteamReferencePriceSource(), latestItem.getSteamReferencePriceSource()));
+    }
+
+    Item parseSteamItem(JSONObject itemJson) {
         try {
             Item item = new Item();
 
@@ -749,11 +774,12 @@ public class ItemServiceImpl implements ItemService {
             item.setExterior(null);
             item.setIsActive(1);
 
-            if (itemJson.containsKey("price_value")) {
-                int priceInCents = itemJson.getIntValue("price_value", 0);
-                item.setBuffPrice(new BigDecimal(priceInCents).divide(new BigDecimal(100)));
-            } else {
-                item.setBuffPrice(BigDecimal.ZERO);
+            BigDecimal steamReferencePrice = parseSteamReferencePrice(itemJson);
+            if (steamReferencePrice != null) {
+                item.setSteamReferencePrice(steamReferencePrice);
+                item.setSteamReferenceCurrency(STEAM_REFERENCE_CURRENCY);
+                item.setSteamReferencePriceSource(STEAM_REFERENCE_PRICE_SOURCE);
+                item.setSteamReferencePriceUpdatedAt(LocalDateTime.now());
             }
 
             item.setCreatedAt(LocalDateTime.now());
@@ -763,6 +789,62 @@ public class ItemServiceImpl implements ItemService {
             log.error("Parse Steam item failed: {}", e.getMessage(), e);
             return null;
         }
+    }
+
+    BigDecimal parseSteamReferencePrice(JSONObject itemJson) {
+        Long priceInCents = firstPositiveLong(itemJson, "sell_price", "price_value");
+        if (priceInCents != null) {
+            return BigDecimal.valueOf(priceInCents, 2).setScale(2, RoundingMode.HALF_UP);
+        }
+
+        return parseSteamPriceText(
+                itemJson.getString("sell_price_text"),
+                itemJson.getString("price")
+        );
+    }
+
+    private Long firstPositiveLong(JSONObject itemJson, String... fieldNames) {
+        for (String fieldName : fieldNames) {
+            Object rawValue = itemJson.get(fieldName);
+            Long value = parsePositiveLong(rawValue);
+            if (value != null) {
+                return value;
+            }
+        }
+        return null;
+    }
+
+    private Long parsePositiveLong(Object rawValue) {
+        if (rawValue instanceof Number number) {
+            long value = number.longValue();
+            return value > 0 ? value : null;
+        }
+        if (rawValue instanceof String text && !text.isBlank()) {
+            try {
+                long value = Long.parseLong(text.trim());
+                return value > 0 ? value : null;
+            } catch (NumberFormatException ignored) {
+                return null;
+            }
+        }
+        return null;
+    }
+
+    private BigDecimal parseSteamPriceText(String... texts) {
+        for (String text : texts) {
+            if (text == null || text.isBlank()) {
+                continue;
+            }
+
+            Matcher matcher = PRICE_TEXT_PATTERN.matcher(text.replace(",", ""));
+            if (matcher.find()) {
+                BigDecimal value = new BigDecimal(matcher.group(1)).setScale(2, RoundingMode.HALF_UP);
+                if (value.compareTo(BigDecimal.ZERO) > 0) {
+                    return value;
+                }
+            }
+        }
+        return null;
     }
 
     private String determineCategory(String name) {

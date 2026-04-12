@@ -45,9 +45,18 @@
             </div>
 
             <div class="news-action">
-              <el-button link type="primary" @click="handleFavorite(item)">
-                {{ favoriteIds.has(item.id) ? '取消收藏' : '收藏' }}
-              </el-button>
+              <button
+                class="favorite-news-button"
+                :class="{ active: favoriteIds.has(item.id) }"
+                type="button"
+                @click="handleFavorite(item)"
+              >
+                <el-icon>
+                  <StarFilled v-if="favoriteIds.has(item.id)" />
+                  <Star v-else />
+                </el-icon>
+                <span>{{ favoriteIds.has(item.id) ? '已收藏' : '收藏' }}</span>
+              </button>
             </div>
           </article>
 
@@ -89,6 +98,7 @@
 <script setup>
 import { computed, onMounted, ref } from 'vue'
 import { ElMessage } from 'element-plus'
+import { Star, StarFilled } from '@element-plus/icons-vue'
 import { useUserStore } from '@/stores/user'
 import { getNews, createNews } from '@/api/news'
 import { addFavorite, checkFavorite, removeFavorite } from '@/api/favorite'
@@ -340,6 +350,35 @@ onMounted(() => {
   display: flex;
   align-items: center;
   justify-content: flex-end;
+}
+
+.favorite-news-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-width: 86px;
+  height: 34px;
+  padding: 0 14px;
+  border: 1px solid #f0a500;
+  border-radius: 10px;
+  background: transparent;
+  color: #f0a500;
+  font-size: 14px;
+  font-weight: 700;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.favorite-news-button:hover,
+.favorite-news-button.active {
+  background: rgba(240, 165, 0, 0.1);
+  box-shadow: 0 8px 20px rgba(240, 165, 0, 0.14);
+}
+
+.favorite-news-button :deep(.el-icon) {
+  font-size: 15px;
 }
 
 @media (max-width: 900px) {

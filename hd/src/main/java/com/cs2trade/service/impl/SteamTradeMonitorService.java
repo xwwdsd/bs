@@ -17,7 +17,9 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestTemplate;
 
+import java.math.BigInteger;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Objects;
 
@@ -36,32 +38,84 @@ public class SteamTradeMonitorService {
         return botProperties.isEnabled();
     }
 
-    public BotDeliveryCheckResult inspectSellerDelivery(TradeOrder order) {
-        if (order == null || order.getTradeOfferId() == null || order.getTradeOfferId().isBlank()) {
-            return BotDeliveryCheckResult.error("Trade offer id is missing");
+    public SellerOfferDetectionResult detectSellerOffer(TradeOrder order) {
+        if (order == null) {
+            return SellerOfferDetectionResult.notFound("交易订单不存在");
         }
 
         User seller = userMapper.selectById(order.getSellerId());
         if (seller == null) {
-            return BotDeliveryCheckResult.error("Seller account is missing");
+            return SellerOfferDetectionResult.notFound("卖家账号不存在");
         }
 
         User buyer = userMapper.selectById(order.getBuyerId());
         if (buyer == null) {
-            return BotDeliveryCheckResult.error("Buyer account is missing");
+            return SellerOfferDetectionResult.notFound("买家账号不存在");
         }
 
         if (seller.getSteamApiKey() == null || seller.getSteamApiKey().isBlank()) {
-            return BotDeliveryCheckResult.error("Seller Steam API Key is not configured");
+            return SellerOfferDetectionResult.notFound("卖家尚未配置 Steam API Key");
         }
 
         if (buyer.getSteamId() == null || buyer.getSteamId().isBlank()) {
-            return BotDeliveryCheckResult.error("Buyer Steam account is not bound");
+            return SellerOfferDetectionResult.notFound("买家尚未绑定 Steam 账号");
+        }
+
+        UserInventory sourceInventory = userInventoryMapper.selectById(order.getInventoryId());
+        if (sourceInventory == null) {
+            return SellerOfferDetectionResult.notFound("库存快照不存在");
+        }
+
+        List<TradeOfferSummary> sentOffers = fetchSentTradeOffers(seller.getSteamApiKey());
+        if (sentOffers.isEmpty()) {
+            return SellerOfferDetectionResult.notFound("暂未检测到卖家发出的 Steam 报价");
+        }
+
+        String buyerAccountId = toAccountId32(buyer.getSteamId());
+        TradeOfferSummary matchedOffer = sentOffers.stream()
+                .filter(offer -> Objects.equals(offer.getAccountIdOther(), buyerAccountId))
+                .filter(offer -> offerContainsInventoryItem(sourceInventory, offer))
+                .max(Comparator.comparingLong(offer -> offer.getTimeUpdated() == null ? 0L : offer.getTimeUpdated()))
+                .orElse(null);
+
+        if (matchedOffer == null) {
+            return SellerOfferDetectionResult.notFound("暂未检测到匹配这笔订单的 Steam 报价");
+        }
+
+        return SellerOfferDetectionResult.found(
+                matchedOffer.getTradeOfferId(),
+                matchedOffer.getTradeOfferUrl(),
+                matchedOffer.getState(),
+                matchedOffer.getStateText()
+        );
+    }
+
+    public BotDeliveryCheckResult inspectSellerDelivery(TradeOrder order) {
+        if (order == null || order.getTradeOfferId() == null || order.getTradeOfferId().isBlank()) {
+            return BotDeliveryCheckResult.error("缺少 Steam 报价 ID");
+        }
+
+        User seller = userMapper.selectById(order.getSellerId());
+        if (seller == null) {
+            return BotDeliveryCheckResult.error("卖家账号不存在");
+        }
+
+        User buyer = userMapper.selectById(order.getBuyerId());
+        if (buyer == null) {
+            return BotDeliveryCheckResult.error("买家账号不存在");
+        }
+
+        if (seller.getSteamApiKey() == null || seller.getSteamApiKey().isBlank()) {
+            return BotDeliveryCheckResult.error("卖家尚未配置 Steam API Key");
+        }
+
+        if (buyer.getSteamId() == null || buyer.getSteamId().isBlank()) {
+            return BotDeliveryCheckResult.error("买家尚未绑定 Steam 账号");
         }
 
         TradeOfferSnapshot offerSnapshot = fetchTradeOffer(seller.getSteamApiKey(), order.getTradeOfferId());
         if (offerSnapshot == null) {
-            return BotDeliveryCheckResult.error("Failed to query Steam trade offer status");
+            return BotDeliveryCheckResult.error("查询 Steam 报价状态失败");
         }
 
         boolean inventoryMatched = false;
@@ -71,11 +125,11 @@ public class SteamTradeMonitorService {
             try {
                 inventoryMatched = buyerInventoryHasMatchingItem(order, buyer.getSteamId());
                 if (!inventoryMatched) {
-                    inventoryMessage = "Trade offer accepted, but the buyer inventory does not show the item yet";
+                    inventoryMessage = "Steam 报价已接受，但买家库存中暂未检测到该物品";
                 }
             } catch (Exception e) {
-                inventoryMessage = "Failed to query buyer inventory: " + e.getMessage();
-                log.warn("Failed to query buyer inventory: orderId={}, error={}", order.getId(), e.getMessage());
+                inventoryMessage = "查询买家库存失败: " + e.getMessage();
+                log.warn("查询买家库存失败: orderId={}, error={}", order.getId(), e.getMessage());
             }
         }
 
@@ -100,14 +154,14 @@ public class SteamTradeMonitorService {
         try {
             ResponseEntity<String> response = restTemplate.getForEntity(url, String.class);
             if (!response.getStatusCode().is2xxSuccessful() || response.getBody() == null) {
-                return TradeOfferSnapshot.error("Steam trade offer query failed with HTTP " + response.getStatusCode().value());
+                return TradeOfferSnapshot.error("查询 Steam 报价失败，HTTP " + response.getStatusCode().value());
             }
 
             JSONObject root = JSONObject.parseObject(response.getBody());
             JSONObject responseObj = root.getJSONObject("response");
             JSONObject offer = responseObj != null ? responseObj.getJSONObject("offer") : null;
             if (offer == null) {
-                return TradeOfferSnapshot.error("Steam trade offer response is empty");
+                return TradeOfferSnapshot.error("Steam 报价返回为空");
             }
 
             Integer state = offer.getInteger("trade_offer_state");
@@ -118,20 +172,82 @@ public class SteamTradeMonitorService {
                     .terminalFailure(isTerminalFailureState(state))
                     .build();
         } catch (Exception e) {
-            log.warn("Failed to query Steam trade offer: tradeOfferId={}, error={}", tradeOfferId, e.getMessage());
-            return TradeOfferSnapshot.error("Failed to query Steam trade offer: " + e.getMessage());
+            log.warn("查询 Steam 报价失败: tradeOfferId={}, error={}", tradeOfferId, e.getMessage());
+            return TradeOfferSnapshot.error("查询 Steam 报价失败: " + e.getMessage());
         }
+    }
+
+    private List<TradeOfferSummary> fetchSentTradeOffers(String apiKey) {
+        List<TradeOfferSummary> summaries = new ArrayList<>();
+        String url = "https://api.steampowered.com/IEconService/GetTradeOffers/v1/?key="
+                + apiKey
+                + "&get_sent_offers=1&get_received_offers=0&active_only=1&historical_only=0&language=schinese";
+
+        try {
+            ResponseEntity<String> response = restTemplate.getForEntity(url, String.class);
+            if (!response.getStatusCode().is2xxSuccessful() || response.getBody() == null) {
+                log.warn("查询卖家发出报价失败: http={}", response.getStatusCode().value());
+                return summaries;
+            }
+
+            JSONObject root = JSONObject.parseObject(response.getBody());
+            JSONObject responseObj = root != null ? root.getJSONObject("response") : null;
+            JSONArray sentOffers = responseObj != null ? responseObj.getJSONArray("trade_offers_sent") : null;
+            if (sentOffers == null) {
+                return summaries;
+            }
+
+            for (int i = 0; i < sentOffers.size(); i++) {
+                JSONObject offer = sentOffers.getJSONObject(i);
+                if (offer == null) {
+                    continue;
+                }
+
+                JSONArray itemsToGiveJson = offer.getJSONArray("items_to_give");
+                List<TradeOfferItemSnapshot> itemsToGive = new ArrayList<>();
+                if (itemsToGiveJson != null) {
+                    for (int j = 0; j < itemsToGiveJson.size(); j++) {
+                        JSONObject item = itemsToGiveJson.getJSONObject(j);
+                        if (item == null) {
+                            continue;
+                        }
+                        itemsToGive.add(TradeOfferItemSnapshot.builder()
+                                .assetId(item.getString("assetid"))
+                                .classId(item.getString("classid"))
+                                .instanceId(item.getString("instanceid"))
+                                .build());
+                    }
+                }
+
+                String tradeOfferId = offer.getString("tradeofferid");
+                summaries.add(TradeOfferSummary.builder()
+                        .tradeOfferId(tradeOfferId)
+                        .tradeOfferUrl(tradeOfferId == null || tradeOfferId.isBlank()
+                                ? null
+                                : "https://steamcommunity.com/tradeoffer/" + tradeOfferId + "/")
+                        .accountIdOther(offer.getString("accountid_other"))
+                        .state(offer.getInteger("trade_offer_state"))
+                        .stateText(resolveTradeOfferStateText(offer.getInteger("trade_offer_state")))
+                        .timeUpdated(offer.getLong("time_updated"))
+                        .itemsToGive(itemsToGive)
+                        .build());
+            }
+        } catch (Exception e) {
+            log.warn("查询卖家发出报价失败: {}", e.getMessage());
+        }
+
+        return summaries;
     }
 
     private boolean buyerInventoryHasMatchingItem(TradeOrder order, String buyerSteamId) {
         UserInventory sourceInventory = userInventoryMapper.selectById(order.getInventoryId());
         if (sourceInventory == null) {
-            throw new IllegalStateException("Source inventory snapshot is missing");
+            throw new IllegalStateException("库存快照不存在");
         }
 
         JSONObject inventoryJson = steamApiClient.getInventory(buyerSteamId);
         if (inventoryJson == null) {
-            throw new IllegalStateException("Buyer inventory response is empty");
+            throw new IllegalStateException("买家库存返回为空");
         }
 
         List<InventoryFingerprint> buyerItems = parseInventoryFingerprints(inventoryJson);
@@ -197,6 +313,41 @@ public class SteamTradeMonitorService {
         return normalize(source.getName()).equals(normalize(candidate.getName()));
     }
 
+    private boolean offerContainsInventoryItem(UserInventory sourceInventory, TradeOfferSummary offer) {
+        if (sourceInventory == null || offer == null || offer.getItemsToGive() == null) {
+            return false;
+        }
+
+        return offer.getItemsToGive().stream().anyMatch(item -> matchesSourceInventory(sourceInventory, item));
+    }
+
+    private boolean matchesSourceInventory(UserInventory source, TradeOfferItemSnapshot candidate) {
+        if (source == null || candidate == null) {
+            return false;
+        }
+
+        if (source.getAssetId() != null && candidate.getAssetId() != null
+                && source.getAssetId().equals(candidate.getAssetId())) {
+            return true;
+        }
+
+        return source.getClassId() != null
+                && source.getInstanceId() != null
+                && candidate.getClassId() != null
+                && candidate.getInstanceId() != null
+                && source.getClassId().equals(candidate.getClassId())
+                && source.getInstanceId().equals(candidate.getInstanceId());
+    }
+
+    private String toAccountId32(String steamId64) {
+        if (steamId64 == null || steamId64.isBlank()) {
+            return "";
+        }
+        BigInteger steam64 = new BigInteger(steamId64);
+        BigInteger base = new BigInteger("76561197960265728");
+        return steam64.subtract(base).toString();
+    }
+
     private boolean isTerminalFailureState(Integer state) {
         return Objects.equals(state, 5)
                 || Objects.equals(state, 6)
@@ -250,6 +401,26 @@ public class SteamTradeMonitorService {
 
     @Data
     @Builder
+    private static class TradeOfferItemSnapshot {
+        private String assetId;
+        private String classId;
+        private String instanceId;
+    }
+
+    @Data
+    @Builder
+    private static class TradeOfferSummary {
+        private String tradeOfferId;
+        private String tradeOfferUrl;
+        private String accountIdOther;
+        private Integer state;
+        private String stateText;
+        private Long timeUpdated;
+        private List<TradeOfferItemSnapshot> itemsToGive;
+    }
+
+    @Data
+    @Builder
     private static class TradeOfferSnapshot {
         private Integer state;
         private String stateText;
@@ -285,6 +456,34 @@ public class SteamTradeMonitorService {
                     .accepted(false)
                     .terminalFailure(false)
                     .inventoryMatched(false)
+                    .build();
+        }
+    }
+
+    @Data
+    @Builder
+    public static class SellerOfferDetectionResult {
+        private boolean found;
+        private String tradeOfferId;
+        private String tradeOfferUrl;
+        private Integer offerState;
+        private String offerStateText;
+        private String errorMessage;
+
+        public static SellerOfferDetectionResult found(String tradeOfferId, String tradeOfferUrl, Integer offerState, String offerStateText) {
+            return SellerOfferDetectionResult.builder()
+                    .found(true)
+                    .tradeOfferId(tradeOfferId)
+                    .tradeOfferUrl(tradeOfferUrl)
+                    .offerState(offerState)
+                    .offerStateText(offerStateText)
+                    .build();
+        }
+
+        public static SellerOfferDetectionResult notFound(String errorMessage) {
+            return SellerOfferDetectionResult.builder()
+                    .found(false)
+                    .errorMessage(errorMessage)
                     .build();
         }
     }

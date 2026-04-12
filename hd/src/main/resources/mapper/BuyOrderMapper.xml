@@ -1,0 +1,198 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.cs2trade.mapper.BuyOrderMapper">
+
+    <resultMap id="BaseResultMap" type="com.cs2trade.entity.BuyOrder">
+        <id column="id" property="id"/>
+        <result column="user_id" property="userId"/>
+        <result column="item_id" property="itemId"/>
+        <result column="price" property="price"/>
+        <result column="quantity" property="quantity"/>
+        <result column="filled_quantity" property="filledQuantity"/>
+        <result column="status" property="status"/>
+        <result column="expire_time" property="expireTime"/>
+        <result column="auto_accept" property="autoAccept"/>
+        <result column="created_at" property="createdAt"/>
+        <result column="updated_at" property="updatedAt"/>
+    </resultMap>
+
+    <resultMap id="MarketResultMap" type="com.cs2trade.entity.BuyOrder" extends="BaseResultMap">
+        <association property="item" javaType="com.cs2trade.entity.Item">
+            <id column="item_resolved_id" property="id"/>
+            <result column="item_item_id" property="itemId"/>
+            <result column="item_name" property="name"/>
+            <result column="item_name_cn" property="nameCn"/>
+            <result column="item_category" property="category"/>
+            <result column="item_sub_category" property="subCategory"/>
+            <result column="item_quality" property="quality"/>
+            <result column="item_rarity" property="rarity"/>
+            <result column="item_exterior" property="exterior"/>
+            <result column="item_icon_url" property="iconUrl"/>
+            <result column="item_buff_price" property="buffPrice"/>
+            <result column="item_steam_reference_price" property="steamReferencePrice"/>
+            <result column="item_steam_reference_currency" property="steamReferenceCurrency"/>
+            <result column="item_steam_reference_price_source" property="steamReferencePriceSource"/>
+            <result column="item_steam_reference_price_updated_at" property="steamReferencePriceUpdatedAt"/>
+        </association>
+        <association property="user" javaType="com.cs2trade.entity.User">
+            <id column="buyer_id" property="id"/>
+            <result column="buyer_username" property="username"/>
+            <result column="buyer_avatar" property="avatar"/>
+        </association>
+    </resultMap>
+
+    <sql id="Base_Column_List">
+        id, user_id, item_id, price, quantity, filled_quantity, status, expire_time, auto_accept, created_at, updated_at
+    </sql>
+
+    <select id="selectById" resultMap="BaseResultMap">
+        SELECT <include refid="Base_Column_List"/>
+        FROM buy_order
+        WHERE id = #{id}
+    </select>
+
+    <select id="selectByUserId" resultMap="MarketResultMap">
+        SELECT
+            bo.id, bo.user_id, bo.item_id, bo.price, bo.quantity, bo.filled_quantity, bo.status,
+            bo.expire_time, bo.auto_accept, bo.created_at, bo.updated_at,
+            i.id as item_resolved_id, i.item_id as item_item_id, i.name as item_name, i.name_cn as item_name_cn,
+            i.category as item_category, i.sub_category as item_sub_category, i.quality as item_quality,
+            i.rarity as item_rarity, i.exterior as item_exterior, i.icon_url as item_icon_url,
+            i.buff_price as item_buff_price, i.steam_reference_price as item_steam_reference_price,
+            i.steam_reference_currency as item_steam_reference_currency,
+            i.steam_reference_price_source as item_steam_reference_price_source,
+            i.steam_reference_price_updated_at as item_steam_reference_price_updated_at,
+            u.id as buyer_id, u.username as buyer_username, u.avatar as buyer_avatar
+        FROM buy_order bo
+        LEFT JOIN item i ON bo.item_id = i.id
+        LEFT JOIN sys_user u ON bo.user_id = u.id
+        WHERE bo.user_id = #{userId}
+        ORDER BY bo.created_at DESC
+    </select>
+
+    <select id="selectActiveByItemId" resultMap="MarketResultMap">
+        SELECT
+            bo.id, bo.user_id, bo.item_id, bo.price, bo.quantity, bo.filled_quantity, bo.status,
+            bo.expire_time, bo.auto_accept, bo.created_at, bo.updated_at,
+            i.id as item_resolved_id, i.item_id as item_item_id, i.name as item_name, i.name_cn as item_name_cn,
+            i.category as item_category, i.sub_category as item_sub_category, i.quality as item_quality,
+            i.rarity as item_rarity, i.exterior as item_exterior, i.icon_url as item_icon_url,
+            i.buff_price as item_buff_price, i.steam_reference_price as item_steam_reference_price,
+            i.steam_reference_currency as item_steam_reference_currency,
+            i.steam_reference_price_source as item_steam_reference_price_source,
+            i.steam_reference_price_updated_at as item_steam_reference_price_updated_at,
+            u.id as buyer_id, u.username as buyer_username, u.avatar as buyer_avatar
+        FROM buy_order bo
+        LEFT JOIN item i ON bo.item_id = i.id
+        LEFT JOIN sys_user u ON bo.user_id = u.id
+        WHERE bo.item_id = #{itemId}
+          AND bo.status = 1
+          AND bo.filled_quantity &lt; bo.quantity
+          AND bo.expire_time &gt; NOW()
+        ORDER BY bo.price DESC, bo.created_at ASC
+    </select>
+
+    <select id="selectMarketList" resultMap="MarketResultMap">
+        SELECT
+            bo.id, bo.user_id, bo.item_id, bo.price, bo.quantity, bo.filled_quantity, bo.status,
+            bo.expire_time, bo.auto_accept, bo.created_at, bo.updated_at,
+            i.id as item_resolved_id, i.item_id as item_item_id, i.name as item_name, i.name_cn as item_name_cn,
+            i.category as item_category, i.sub_category as item_sub_category, i.quality as item_quality,
+            i.rarity as item_rarity, i.exterior as item_exterior, i.icon_url as item_icon_url,
+            i.buff_price as item_buff_price, i.steam_reference_price as item_steam_reference_price,
+            i.steam_reference_currency as item_steam_reference_currency,
+            i.steam_reference_price_source as item_steam_reference_price_source,
+            i.steam_reference_price_updated_at as item_steam_reference_price_updated_at,
+            u.id as buyer_id, u.username as buyer_username, u.avatar as buyer_avatar
+        FROM buy_order bo
+        LEFT JOIN item i ON bo.item_id = i.id
+        LEFT JOIN sys_user u ON bo.user_id = u.id
+        WHERE bo.status = 1
+          AND bo.filled_quantity &lt; bo.quantity
+          AND bo.expire_time &gt; NOW()
+        <if test="category != null and category != ''">
+            AND i.sub_category = #{category}
+        </if>
+        <if test="exterior != null and exterior != ''">
+            AND i.exterior = #{exterior}
+        </if>
+        <if test="quality != null and quality != ''">
+            AND i.quality = #{quality}
+        </if>
+        <if test="keyword != null and keyword != ''">
+            AND (i.name LIKE CONCAT('%', #{keyword}, '%') OR i.name_cn LIKE CONCAT('%', #{keyword}, '%'))
+        </if>
+        <if test="minPrice != null">
+            AND bo.price &gt;= #{minPrice}
+        </if>
+        <if test="maxPrice != null">
+            AND bo.price &lt;= #{maxPrice}
+        </if>
+        ORDER BY
+        <choose>
+            <when test="sortField == 'price' and sortOrder == 'ASC'">bo.price ASC</when>
+            <when test="sortField == 'price' and sortOrder == 'DESC'">bo.price DESC</when>
+            <when test="sortField == 'created_at' and sortOrder == 'ASC'">bo.created_at ASC</when>
+            <otherwise>bo.created_at DESC</otherwise>
+        </choose>
+        LIMIT #{size} OFFSET #{offset}
+    </select>
+
+    <select id="countMarketList" resultType="Long">
+        SELECT COUNT(*)
+        FROM buy_order bo
+        LEFT JOIN item i ON bo.item_id = i.id
+        WHERE bo.status = 1
+          AND bo.filled_quantity &lt; bo.quantity
+          AND bo.expire_time &gt; NOW()
+        <if test="category != null and category != ''">
+            AND i.sub_category = #{category}
+        </if>
+        <if test="exterior != null and exterior != ''">
+            AND i.exterior = #{exterior}
+        </if>
+        <if test="quality != null and quality != ''">
+            AND i.quality = #{quality}
+        </if>
+        <if test="keyword != null and keyword != ''">
+            AND (i.name LIKE CONCAT('%', #{keyword}, '%') OR i.name_cn LIKE CONCAT('%', #{keyword}, '%'))
+        </if>
+        <if test="minPrice != null">
+            AND bo.price &gt;= #{minPrice}
+        </if>
+        <if test="maxPrice != null">
+            AND bo.price &lt;= #{maxPrice}
+        </if>
+    </select>
+
+    <insert id="insert" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO buy_order (
+            user_id, item_id, price, quantity, filled_quantity, status, expire_time, auto_accept, created_at, updated_at
+        ) VALUES (
+            #{userId}, #{itemId}, #{price}, #{quantity}, #{filledQuantity}, #{status}, #{expireTime}, #{autoAccept}, #{createdAt}, #{updatedAt}
+        )
+    </insert>
+
+    <update id="updateStatus">
+        UPDATE buy_order
+        SET status = #{status}, updated_at = NOW()
+        WHERE id = #{id}
+    </update>
+
+    <update id="incrementFilledQuantity">
+        UPDATE buy_order
+        SET filled_quantity = LEAST(quantity, filled_quantity + 1),
+            status = CASE WHEN filled_quantity + 1 &gt;= quantity THEN 2 ELSE status END,
+            updated_at = NOW()
+        WHERE id = #{id}
+          AND status = 1
+          AND filled_quantity &lt; quantity
+    </update>
+
+    <update id="expireOldActiveOrders">
+        UPDATE buy_order
+        SET status = 0, updated_at = NOW()
+        WHERE status = 1
+          AND expire_time &lt;= NOW()
+    </update>
+</mapper>

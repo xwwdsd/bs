@@ -17,6 +17,8 @@ import javax.net.ssl.TrustManager;
 import javax.net.ssl.X509TrustManager;
 import java.net.InetSocketAddress;
 import java.net.Proxy;
+import java.net.URLEncoder;
+import java.nio.charset.StandardCharsets;
 import java.security.SecureRandom;
 import java.security.cert.X509Certificate;
 import java.time.Duration;
@@ -158,7 +160,7 @@ public class SteamApiClient {
 
     public SteamMarketPageResult getCsgoItems(int start, int count) {
         String url = String.format(
-                "https://steamcommunity.com/market/search/render/?query=&start=%d&count=%d&search_descriptions=1&sort_column=name&sort_dir=asc&appid=730&norender=1",
+                "https://steamcommunity.com/market/search/render/?query=&start=%d&count=%d&search_descriptions=1&sort_column=name&sort_dir=asc&appid=730&norender=1&currency=23&country=CN&l=schinese",
                 start,
                 count
         );
@@ -198,6 +200,42 @@ public class SteamApiClient {
         } catch (Exception e) {
             log.error("Steam market request failed: start={}, count={}, message={}", start, count, e.getMessage(), e);
             return SteamMarketPageResult.failure(0, e.getMessage());
+        }
+    }
+
+    public JSONObject getMarketPriceOverview(String marketHashName) {
+        if (marketHashName == null || marketHashName.isBlank()) {
+            return null;
+        }
+
+        String encodedName = URLEncoder.encode(marketHashName, StandardCharsets.UTF_8);
+        String url = "https://steamcommunity.com/market/priceoverview/?appid=730&currency=23&country=CN&l=schinese&market_hash_name="
+                + encodedName;
+        log.info("Request Steam market price overview: marketHashName={}", marketHashName);
+
+        Request request = new Request.Builder()
+                .url(url)
+                .get()
+                .header("User-Agent", defaultUserAgent())
+                .header("Accept", "application/json, text/plain, */*")
+                .header("Accept-Language", "zh-CN,zh;q=0.9,en;q=0.8")
+                .header("Referer", "https://steamcommunity.com/market/")
+                .build();
+
+        try (Response response = httpClient.newCall(request).execute()) {
+            int statusCode = response.code();
+            ResponseBody body = response.body();
+            String responseBody = body != null ? body.string() : "";
+            log.info("Steam market price overview response: status={}, preview={}", statusCode, preview(responseBody, 300));
+
+            if (statusCode == 200) {
+                return JSON.parseObject(responseBody);
+            }
+
+            return null;
+        } catch (Exception e) {
+            log.warn("Steam market price overview request failed: marketHashName={}, message={}", marketHashName, e.getMessage());
+            return null;
         }
     }
 

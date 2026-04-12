@@ -93,7 +93,8 @@
 </template>
 
 <script setup>
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Bell, ChatDotRound, ShoppingCart } from '@element-plus/icons-vue'
 import dayjs from 'dayjs'
@@ -108,6 +109,8 @@ import {
 } from '@/api/message'
 import SiteHeader from '@/components/SiteHeader.vue'
 
+const route = useRoute()
+const router = useRouter()
 const activeTab = ref(1)
 const loading = ref(false)
 const messages = ref([])
@@ -142,12 +145,36 @@ const normalizeMessageList = (payload) => {
   return { list: [], total: 0 }
 }
 
-const switchTab = (tab) => {
+const normalizeMessageTab = (value) => {
+  const numeric = Number(value)
+  return [1, 2, 3].includes(numeric) ? numeric : 1
+}
+
+const applyMessageTab = (tab) => {
   activeTab.value = tab
   selectedIds.value = []
   selectAll.value = false
   currentPage.value = 1
-  fetchMessages()
+}
+
+const updateMessageTabQuery = async (tab) => {
+  const normalized = normalizeMessageTab(tab)
+  if (normalizeMessageTab(route.query.tab) === normalized) return
+  await router.replace({
+    path: route.path,
+    query: {
+      ...route.query,
+      tab: String(normalized)
+    }
+  })
+}
+
+const switchTab = async (tab) => {
+  try {
+    await updateMessageTabQuery(tab)
+  } catch (error) {
+    ElMessage.error(error?.message || '切换消息分类失败')
+  }
 }
 
 const fetchMessages = async () => {
@@ -338,8 +365,17 @@ const formatPrice = (value) => {
   return Number.isFinite(numeric) ? numeric.toFixed(2) : '0.00'
 }
 
+watch(
+  () => route.query.tab,
+  (value) => {
+    const normalized = normalizeMessageTab(value)
+    applyMessageTab(normalized)
+    fetchMessages()
+  },
+  { immediate: true }
+)
+
 onMounted(() => {
-  fetchMessages()
   fetchUnreadCount()
 })
 </script>

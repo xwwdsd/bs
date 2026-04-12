@@ -1,4 +1,4 @@
-<template>
+﻿<template>
   <div class="orders-page">
     <SiteHeader />
 
@@ -10,7 +10,7 @@
             <div class="tab-item plain">查看买入和卖出的交易订单</div>
           </div>
           <div class="toolbar-right">
-            <el-radio-group v-model="orderType" size="large" @change="fetchOrders">
+            <el-radio-group v-model="orderType" size="large" @change="handleOrderTypeChange">
               <el-radio-button label="buy">我购买的</el-radio-button>
               <el-radio-button label="sell">我卖出的</el-radio-button>
             </el-radio-group>
@@ -76,9 +76,9 @@
                   v-if="orderType === 'sell' && order.status === 2"
                   type="primary"
                   :loading="shipping"
-                  @click="showShipDialog(order)"
+                  @click="handleShip(order)"
                 >
-                  登记卖家报价
+                  立即检测
                 </el-button>
 
                 <el-button v-if="order.status === 1" :loading="loading" @click="handleBotCheck(order)">立即检测</el-button>
@@ -99,22 +99,6 @@
       </section>
     </main>
 
-    <el-dialog v-model="shipDialogVisible" title="登记卖家报价" width="500px">
-      <el-form :model="shipForm" label-position="top">
-        <el-form-item label="Steam 交易报价 ID">
-          <el-input v-model="shipForm.tradeOfferId" placeholder="请输入卖家发出的 Steam 交易报价 ID" />
-        </el-form-item>
-        <el-form-item label="交易报价链接">
-          <el-input v-model="shipForm.tradeOfferUrl" placeholder="https://steamcommunity.com/tradeoffer/..." />
-        </el-form-item>
-      </el-form>
-
-      <template #footer>
-        <el-button @click="shipDialogVisible = false">取消</el-button>
-        <el-button type="primary" :loading="shipping" @click="handleShip">确认登记</el-button>
-      </template>
-    </el-dialog>
-
     <el-dialog v-model="detailDialogVisible" title="订单详情" width="680px">
       <div v-if="currentOrder" class="detail-grid">
         <div class="detail-block">
@@ -123,7 +107,7 @@
           <p>状态：{{ getStatusText(currentOrder.status) }}</p>
           <p>创建时间：{{ formatDate(currentOrder.createdAt) }}</p>
           <p v-if="currentOrder.paidAt">支付时间：{{ formatDate(currentOrder.paidAt) }}</p>
-          <p v-if="currentOrder.sentAt">报价登记时间：{{ formatDate(currentOrder.sentAt) }}</p>
+          <p v-if="currentOrder.sentAt">发货时间：{{ formatDate(currentOrder.sentAt) }}</p>
           <p v-if="currentOrder.completedAt">完成时间：{{ formatDate(currentOrder.completedAt) }}</p>
         </div>
 
@@ -146,7 +130,8 @@
 </template>
 
 <script setup>
-import { onMounted, ref } from 'vue'
+import { ref, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import request from '@/utils/request'
 import SiteHeader from '@/components/SiteHeader.vue'
@@ -156,6 +141,8 @@ import {
   resolveExterior as resolveExteriorCode
 } from '@/utils/itemExterior'
 
+const route = useRoute()
+const router = useRouter()
 const loading = ref(false)
 const orderType = ref('buy')
 const orders = ref([])
@@ -164,12 +151,6 @@ const confirming = ref(false)
 const cancelling = ref(false)
 const shipping = ref(false)
 
-const shipDialogVisible = ref(false)
-const shipForm = ref({
-  orderId: null,
-  tradeOfferId: '',
-  tradeOfferUrl: ''
-})
 
 const detailDialogVisible = ref(false)
 const currentOrder = ref(null)
@@ -185,6 +166,20 @@ const getOrderExteriorText = (order) => {
     order?.item?.name
   )
   return exterior ? getExteriorText(exterior) : ''
+}
+
+const normalizeOrderType = (value) => (value === 'sell' ? 'sell' : 'buy')
+
+const updateOrderTypeQuery = async (value) => {
+  const normalized = normalizeOrderType(value)
+  if (route.query.type === normalized) return
+  await router.replace({
+    path: route.path,
+    query: {
+      ...route.query,
+      type: normalized
+    }
+  })
 }
 
 const fetchOrders = async () => {
@@ -221,32 +216,19 @@ const handlePay = async (order) => {
   }
 }
 
-const showShipDialog = (order) => {
-  shipForm.value = {
-    orderId: order.id,
-    tradeOfferId: '',
-    tradeOfferUrl: ''
-  }
-  shipDialogVisible.value = true
-}
-
-const handleShip = async () => {
-  if (!shipForm.value.tradeOfferId) {
-    ElMessage.warning('请输入 Steam 交易报价 ID')
+const handleShip = async (order) => {
+  if (!order?.id) {
+    ElMessage.warning('暂未找到对应的交易订单，请稍后刷新重试')
     return
   }
 
   shipping.value = true
   try {
-    await request.post(`/v1/order/${shipForm.value.orderId}/ship`, {
-      tradeOfferId: shipForm.value.tradeOfferId,
-      tradeOfferUrl: shipForm.value.tradeOfferUrl
-    })
-    ElMessage.success('卖家报价已登记')
-    shipDialogVisible.value = false
+    await request.post(`/v1/order/${order.id}/ship`, {})
+    ElMessage.success('已触发系统自动检测卖家发货')
     fetchOrders()
   } catch (error) {
-    ElMessage.error(error?.response?.data?.message || error?.message || '登记卖家报价失败')
+    ElMessage.error(error?.response?.data?.message || error?.message || '自动检测发货失败')
   } finally {
     shipping.value = false
   }
@@ -315,14 +297,23 @@ const viewDetail = async (order) => {
   }
 }
 
+const handleOrderTypeChange = async (value) => {
+  try {
+    await updateOrderTypeQuery(value)
+  } catch (error) {
+    ElMessage.error(error?.message || '切换订单类型失败')
+  }
+}
+
 const getStatusText = (status) => {
   const map = {
     0: '待支付',
-    1: '待发货',
-    2: '待收货',
-    3: '已发货',
+    1: '报价中',
+    2: '待发货',
+    3: '待收货',
     4: '已完成',
-    5: '已取消'
+    5: '已取消',
+    6: '纠纷中'
   }
   return map[status] || '未知状态'
 }
@@ -342,9 +333,17 @@ const getStatusType = (status) => {
 const formatPrice = (value) => Number(value || 0).toFixed(2)
 const formatDate = (value) => (value ? new Date(value).toLocaleString('zh-CN') : '-')
 
-onMounted(() => {
-  fetchOrders()
-})
+watch(
+  () => route.query.type,
+  (value) => {
+    const normalized = normalizeOrderType(value)
+    if (orderType.value !== normalized) {
+      orderType.value = normalized
+    }
+    fetchOrders()
+  },
+  { immediate: true }
+)
 </script>
 
 <style scoped>
@@ -502,3 +501,5 @@ onMounted(() => {
   }
 }
 </style>
+
+

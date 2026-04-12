@@ -81,7 +81,6 @@ CREATE TABLE user_wallet (
     total_withdraw DECIMAL(18, 2) NOT NULL DEFAULT 0.00 COMMENT '累计提现',
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
     updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
-    
     PRIMARY KEY (id),
     UNIQUE KEY uk_user_id (user_id),
     
@@ -141,6 +140,11 @@ CREATE TABLE item (
     is_active TINYINT UNSIGNED NOT NULL DEFAULT 1 COMMENT '是否启用: 0-否, 1-是',
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
     updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+    
+    steam_reference_price DECIMAL(18, 2) DEFAULT NULL COMMENT 'Steam reference price',
+    steam_reference_currency VARCHAR(8) DEFAULT 'CNY' COMMENT 'Steam reference price currency',
+    steam_reference_price_source VARCHAR(32) DEFAULT NULL COMMENT 'Steam reference price source',
+    steam_reference_price_updated_at DATETIME DEFAULT NULL COMMENT 'Steam reference price update time',
     
     PRIMARY KEY (id),
     UNIQUE KEY uk_item_id (item_id),

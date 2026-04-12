@@ -11,18 +11,25 @@ export const TEXT = {
   currentPrice: '\u5f53\u524d\u552e\u4ef7',
   buyCurrentOrder: '\u8d2d\u4e70\u5f53\u524d\u8ba2\u5355',
   sellMine: '\u6211\u8981\u51fa\u552e',
+  requestBuy: '\u6211\u8981\u6c42\u8d2d',
   favorite: '\u6536\u85cf',
   favorited: '\u5df2\u6536\u85cf',
   seller: '\u5356\u5bb6',
   wear: '\u78e8\u635f',
   listedAt: '\u4e0a\u67b6\u65f6\u95f4',
   currentOnSale: '\u5f53\u524d\u5728\u552e',
+  sellTab: '\u51fa\u552e',
+  buyTab: '\u6c42\u8d2d',
   saleRecordSuffix: '\u6761\u5728\u552e\u8bb0\u5f55',
+  currentBuyOrders: '\u5f53\u524d\u6c42\u8d2d',
+  buyRecordSuffix: '\u6761\u6c42\u8d2d\u8bb0\u5f55',
   emptyListings: '\u6682\u65e0\u540c\u6b3e\u5728\u552e\u8bb0\u5f55',
   item: '\u9970\u54c1',
   wearLevel: '\u78e8\u635f\u5ea6',
   price: '\u4ef7\u683c',
   action: '\u64cd\u4f5c',
+  buyer: '\u4e70\u5bb6',
+  remainingQuantity: '\u5269\u4f59\u6570\u91cf',
   bargain: '\u8fd8\u4ef7',
   bargainTitle: '\u53d1\u8d77\u8fd8\u4ef7',
   currentSalePrice: '\u5f53\u524d\u552e\u4ef7',
@@ -34,6 +41,19 @@ export const TEXT = {
   buy: '\u8d2d\u4e70',
   notFound: '\u672a\u627e\u5230\u5bf9\u5e94\u7684\u9970\u54c1\u6216\u8ba2\u5355',
   createSellOrder: '\u521b\u5efa\u51fa\u552e\u8ba2\u5355',
+  createBuyOrderTitle: '\u53d1\u5e03\u6c42\u8d2d',
+  buyOrderPriceLabel: '\u6c42\u8d2d\u4ef7\u683c',
+  buyOrderQuantityLabel: '\u6c42\u8d2d\u6570\u91cf',
+  confirmBuyOrder: '\u786e\u8ba4\u53d1\u5e03',
+  buyOrderCreatedSuccess: '\u6c42\u8d2d\u5df2\u53d1\u5e03',
+  createBuyOrderFailed: '\u53d1\u5e03\u6c42\u8d2d\u5931\u8d25',
+  respondBuyTitle: '\u54cd\u5e94\u6c42\u8d2d',
+  chooseInventoryForBuy: '\u9009\u62e9\u51fa\u552e\u5e93\u5b58',
+  sellToBuyer: '\u51fa\u552e\u7ed9TA',
+  confirmRespondBuy: '\u786e\u8ba4\u51fa\u552e',
+  noMatchingInventory: '\u6ca1\u6709\u53ef\u51fa\u552e\u7684\u540c\u6b3e\u5e93\u5b58',
+  respondBuySuccess: '\u5df2\u54cd\u5e94\u6c42\u8d2d\uff0c\u8bf7\u524d\u5f80\u8ba2\u5355\u5904\u7406',
+  respondBuyFailed: '\u54cd\u5e94\u6c42\u8d2d\u5931\u8d25',
   chooseInventory: '\u9009\u62e9\u5e93\u5b58\u9970\u54c1',
   chooseInventoryPlaceholder: '\u8bf7\u9009\u62e9\u5e93\u5b58\u9970\u54c1',
   sellPrice: '\u51fa\u552e\u4ef7\u683c',
@@ -79,7 +99,11 @@ export const QUALITY_TEXT_MAP = {
   industrial: '\u5de5\u4e1a\u7ea7',
   extraordinary: '\u975e\u51e1',
   remarkable: '\u5947\u5f02',
-  consumer: '\u6d88\u8d39\u7ea7'
+  consumer: '\u6d88\u8d39\u7ea7',
+  exotic: '\u5353\u8d8a',
+  'high-grade': '\u9ad8\u7ea7',
+  'normal-grade': '\u666e\u901a\u7ea7',
+  'agent-grade': '\u63a2\u5458\u54c1\u8d28'
 }
 
 export const EXTERIOR_TEXT_MAP = {
@@ -128,7 +152,8 @@ export const TYPE_TEXT_MAP = {
   Normal: '\u666e\u901a',
   StatTrak: 'StatTrak\u2122',
   Souvenir: '\u7eaa\u5ff5\u54c1',
-  Star: '\u7a00\u6709'
+  Star: '\u2605',
+  StarStatTrak: '\u2605 StatTrak\u2122'
 }
 
 export const LEVEL_LABELS = {

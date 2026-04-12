@@ -41,8 +41,9 @@ public class SecurityConfig {
                 )
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers("/").permitAll()
-                        .requestMatchers("/v1/auth/**").permitAll()
-                        .requestMatchers("/v1/admin/reset-admin-password").permitAll()
+                        .requestMatchers(HttpMethod.POST, "/v1/auth/register", "/v1/auth/login").permitAll()
+                        .requestMatchers(HttpMethod.POST, "/v1/auth/forgot-password", "/v1/auth/reset-password").permitAll()
+                        .requestMatchers(HttpMethod.GET, "/v1/auth/check-email", "/v1/auth/check-username", "/v1/auth/validate-reset-token").permitAll()
                         .requestMatchers("/public/**").permitAll()
                         .requestMatchers("/uploads/**").permitAll()
                         .requestMatchers("/v1/file/**").permitAll()
@@ -62,6 +63,9 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.GET, "/v1/sell-orders/market").permitAll()
                         .requestMatchers(HttpMethod.GET, "/v1/sell-orders/*").permitAll()
                         .requestMatchers(HttpMethod.GET, "/v1/sell-orders/item/**").permitAll()
+                        .requestMatchers(HttpMethod.GET, "/v1/buy-orders/market").permitAll()
+                        .requestMatchers(HttpMethod.GET, "/v1/buy-orders/*").permitAll()
+                        .requestMatchers(HttpMethod.GET, "/v1/buy-orders/item/**").permitAll()
                         .requestMatchers(HttpMethod.GET, "/v1/player-shows/**").permitAll()
                         .requestMatchers(HttpMethod.GET, "/v1/banners/**").permitAll()
 

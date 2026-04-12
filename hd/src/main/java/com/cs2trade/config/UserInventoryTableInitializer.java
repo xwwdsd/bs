@@ -15,6 +15,7 @@ public class UserInventoryTableInitializer {
 
     @PostConstruct
     public void ensureColumns() {
+        addColumnIfMissing("market_hash_name", "ALTER TABLE user_inventory ADD COLUMN market_hash_name VARCHAR(255) DEFAULT NULL COMMENT 'Steam Market Hash Name' AFTER instance_id");
         addColumnIfMissing("icon_url_large", "ALTER TABLE user_inventory ADD COLUMN icon_url_large VARCHAR(255) DEFAULT NULL COMMENT '物品大图URL' AFTER icon_url");
         addColumnIfMissing("paint_index", "ALTER TABLE user_inventory ADD COLUMN paint_index INT UNSIGNED DEFAULT NULL COMMENT '皮肤编号 / Finish Catalog' AFTER paint_seed");
         addColumnIfMissing("inspect_url", "ALTER TABLE user_inventory ADD COLUMN inspect_url VARCHAR(1000) DEFAULT NULL COMMENT '检视链接' AFTER paint_wear");

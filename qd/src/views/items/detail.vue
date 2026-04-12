@@ -17,7 +17,25 @@
             <div class="hero-main">
               <div class="media-panel">
                 <div class="media-stage">
+                  <div class="media-badge-row">
+                    <span class="media-badge" :class="getDisplayBadgeClass(displayModel.primaryBadge)">
+                      {{ displayModel.primaryBadge.text }}
+                    </span>
+                    <span
+                      v-if="displayModel.secondaryBadge"
+                      class="media-badge media-badge-secondary"
+                      :class="getDisplaySecondaryBadgeClass(displayModel.secondaryBadge)"
+                    >
+                      {{ displayModel.secondaryBadge.text }}
+                    </span>
+                  </div>
                   <img :src="displayIcon" :alt="displayName" />
+                  <div v-if="displayModel.showWearModule" class="media-wear-panel">
+                    <div class="media-wear-text">{{ TEXT.wear }}: {{ getWearDisplay(displaySource) }}</div>
+                    <div class="media-wear-scale">
+                      <span class="media-wear-marker" :style="{ left: `${getWearPercent(displaySource)}%` }"></span>
+                    </div>
+                  </div>
                 </div>
               </div>
 
@@ -42,8 +60,8 @@
 
                 <div class="base-meta">
                   <span>{{ TEXT.quality }} | {{ displayQualityText }}</span>
-                  <span>{{ TEXT.category }} | {{ displayCollectionTypeLabel }}</span>
-                  <span>{{ TEXT.type }} | {{ displayCategoryLabel }}</span>
+                  <span>{{ TEXT.category }} | {{ displayCategoryLabel }}</span>
+                  <span>{{ TEXT.type }} | {{ displayTypeText }}</span>
                 </div>
 
                 <div class="notice-bar">
@@ -68,6 +86,9 @@
                     >
                       {{ TEXT.buyCurrentOrder }}
                     </el-button>
+                    <el-button type="danger" plain @click="openBuyOrderDialog">
+                      {{ TEXT.requestBuy }}
+                    </el-button>
                     <el-button v-if="userStore.isLoggedIn" @click="goInventory">{{ TEXT.sellMine }}</el-button>
                   </div>
                 </div>
@@ -91,29 +112,90 @@
           </div>
         </section>
 
-        <ItemSellOrdersSection
-          :loading="sellOrdersLoading"
-          :orders="relatedOrders"
-          :selected-order-id="selectedOrder?.id ?? null"
-          :current-user-id="currentUserId"
-          :text="TEXT"
-          :can-bargain="canBargain"
-          :format-date="formatDate"
-          :format-price="formatPrice"
-          :get-avatar-fallback="getAvatarFallback"
-          :get-collection-type-label="getCollectionTypeLabel"
-          :get-exterior-text="getExteriorText"
-          :get-item-exterior="getItemExterior"
-          :get-item-icon="getItemIcon"
-          :get-item-name="getItemName"
-          :get-order-status="getOrderStatus"
-          :get-wear-display="getWearDisplay"
-          :get-wear-percent="getWearPercent"
-          :has-wear-visual="hasWearVisual"
-          @select-order="goToOrder"
-          @bargain="openBargainDialog"
-          @buy="handleBuy"
-        />
+        <section class="order-book-section">
+          <div class="order-book-header">
+            <div class="order-book-tabs">
+              <button
+                type="button"
+                class="order-book-tab"
+                :class="{ active: activeOrderTab === 'sell' }"
+                @click="activeOrderTab = 'sell'"
+              >
+                {{ TEXT.sellTab }}
+              </button>
+              <button
+                type="button"
+                class="order-book-tab"
+                :class="{ active: activeOrderTab === 'buy' }"
+                @click="activeOrderTab = 'buy'"
+              >
+                {{ TEXT.buyTab }}
+              </button>
+            </div>
+            <span class="order-book-count">
+              {{ activeOrderTab === 'sell' ? relatedOrders.length : buyOrders.length }}
+              {{ activeOrderTab === 'sell' ? TEXT.saleRecordSuffix : TEXT.buyRecordSuffix }}
+            </span>
+          </div>
+
+          <ItemSellOrdersSection
+            v-if="activeOrderTab === 'sell'"
+            class="orders-panel sell-orders-panel"
+            hide-header
+            :loading="sellOrdersLoading"
+            :orders="relatedOrders"
+            :selected-order-id="selectedOrder?.id ?? null"
+            :current-user-id="currentUserId"
+            :text="TEXT"
+            :can-bargain="canBargain"
+            :format-date="formatDate"
+            :format-price="formatPrice"
+            :get-avatar-fallback="getAvatarFallback"
+            :get-collection-type-label="getCollectionTypeLabel"
+            :get-exterior-text="getExteriorText"
+            :get-item-exterior="getItemExterior"
+            :get-item-icon="getItemIcon"
+            :get-item-name="getItemName"
+            :get-order-status="getOrderStatus"
+            :get-wear-display="getWearDisplay"
+            :get-wear-percent="getWearPercent"
+            :has-wear-visual="hasWearVisual"
+            @select-order="goToOrder"
+            @bargain="openBargainDialog"
+            @buy="handleBuy"
+          />
+
+          <section v-else class="orders-panel buy-orders-section">
+            <div class="buy-orders-table" v-loading="buyOrdersLoading">
+              <el-empty v-if="!buyOrders.length && !buyOrdersLoading" :description="TEXT.noActiveSale" />
+              <div v-for="order in buyOrders" v-else :key="order.id" class="buy-order-row">
+                <div class="buy-order-item">
+                  <img :src="order.item?.iconUrl || displayIcon" :alt="getItemName(order)" />
+                  <div>
+                    <strong>{{ getItemName(order) }}</strong>
+                    <span>{{ TEXT.remainingQuantity }} {{ getRemainingQuantity(order) }}</span>
+                  </div>
+                </div>
+                <div class="buy-order-buyer">
+                  <span>{{ TEXT.buyer }}</span>
+                  <strong>{{ order.user?.username || TEXT.unknownSeller }}</strong>
+                </div>
+                <div class="buy-order-price">
+                  <span>{{ TEXT.price }}</span>
+                  <strong>{{ TEXT.currency }} {{ formatPrice(order.price) }}</strong>
+                </div>
+                <el-button
+                  type="primary"
+                  plain
+                  :disabled="order.userId === currentUserId"
+                  @click="openRespondBuyDialog(order)"
+                >
+                  {{ TEXT.sellToBuyer }}
+                </el-button>
+              </div>
+            </div>
+          </section>
+        </section>
       </template>
 
       <el-empty v-else-if="!loading" :description="TEXT.notFound" />
@@ -131,6 +213,59 @@
       @submit="submitBargain"
     />
 
+    <el-dialog v-model="showBuyOrderDialog" :title="TEXT.createBuyOrderTitle" width="420px">
+      <el-form label-position="top">
+        <el-form-item :label="TEXT.item">
+          <div class="dialog-static-value">{{ displayName }}</div>
+        </el-form-item>
+        <el-form-item :label="TEXT.buyOrderPriceLabel">
+          <el-input-number v-model="buyForm.price" :min="0.01" :precision="2" style="width: 100%" />
+        </el-form-item>
+        <el-form-item :label="TEXT.buyOrderQuantityLabel">
+          <el-input-number v-model="buyForm.quantity" :min="1" :precision="0" style="width: 100%" />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="showBuyOrderDialog = false">{{ TEXT.cancel }}</el-button>
+        <el-button type="primary" :loading="buyCreating" @click="submitBuyOrder">{{ TEXT.confirmBuyOrder }}</el-button>
+      </template>
+    </el-dialog>
+
+    <el-dialog v-model="showRespondBuyDialog" :title="TEXT.respondBuyTitle" width="480px">
+      <el-form label-position="top">
+        <el-form-item :label="TEXT.buyOrderPriceLabel">
+          <div class="dialog-static-value">{{ TEXT.currency }} {{ formatPrice(respondTargetOrder?.price) }}</div>
+        </el-form-item>
+        <el-form-item :label="TEXT.chooseInventoryForBuy">
+          <el-select
+            v-model="respondForm.inventoryId"
+            :placeholder="TEXT.chooseInventoryPlaceholder"
+            :loading="respondInventoryLoading"
+            style="width: 100%"
+          >
+            <el-option
+              v-for="item in matchingInventory"
+              :key="item.id"
+              :label="item.name || item.item?.nameCn || item.item?.name"
+              :value="item.id"
+            />
+          </el-select>
+          <p v-if="!matchingInventory.length && !respondInventoryLoading" class="form-help">{{ TEXT.noMatchingInventory }}</p>
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="showRespondBuyDialog = false">{{ TEXT.cancel }}</el-button>
+        <el-button
+          type="primary"
+          :loading="respondSubmitting"
+          :disabled="!respondForm.inventoryId"
+          @click="submitRespondBuyOrder"
+        >
+          {{ TEXT.confirmRespondBuy }}
+        </el-button>
+      </template>
+    </el-dialog>
+
   </div>
 </template>
 
@@ -139,7 +274,9 @@ import { computed, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Star, StarFilled } from '@element-plus/icons-vue'
+import { createBuyOrder, getBuyOrdersByItemId, respondBuyOrder } from '@/api/buyOrder'
 import { addFavorite, checkFavorite, removeFavorite } from '@/api/favorite'
+import { getMarketableInventory } from '@/api/inventory'
 import { getItemById, searchItems } from '@/api/item'
 import { createBargain } from '@/api/message'
 import { getSellOrderDetail, getSellOrdersByItemId } from '@/api/sellOrder'
@@ -150,15 +287,15 @@ import ItemBargainDialog from '@/views/items/components/ItemBargainDialog.vue'
 import ItemSellOrdersSection from '@/views/items/components/ItemSellOrdersSection.vue'
 import request from '@/utils/request'
 import {
-  normalizeQualityKey,
+  resolveItemQuality,
   resolveItemCategory,
   resolveItemSubCategory,
   resolveItemType
 } from '@/utils/itemClassification'
 import {
-  normalizeWearValue,
-  resolveExterior as resolveExteriorCode
+  normalizeWearValue
 } from '@/utils/itemExterior'
+import { getItemDisplayModel } from '@/utils/itemDisplay'
 import {
   CATEGORY_TEXT_MAP,
   EXTERIOR_ORDER,
@@ -179,11 +316,14 @@ const userStore = useUserStore()
 const showLoginModal = ref(false)
 const loading = ref(false)
 const sellOrdersLoading = ref(false)
+const buyOrdersLoading = ref(false)
 const favoriteLoading = ref(false)
 const isFavorited = ref(false)
 const selectedOrder = ref(null)
 const itemDetail = ref(null)
 const sellOrders = ref([])
+const buyOrders = ref([])
+const activeOrderTab = ref('sell')
 const relatedItems = ref([])
 const showBargainDialog = ref(false)
 const bargainSubmitting = ref(false)
@@ -191,14 +331,29 @@ const bargainTargetOrder = ref(null)
 const bargainForm = ref({
   price: 0.01
 })
+const showBuyOrderDialog = ref(false)
+const buyCreating = ref(false)
+const buyForm = ref({
+  price: 0.01,
+  quantity: 1
+})
+const showRespondBuyDialog = ref(false)
+const respondInventoryLoading = ref(false)
+const respondSubmitting = ref(false)
+const respondTargetOrder = ref(null)
+const respondInventory = ref([])
+const respondForm = ref({
+  inventoryId: null
+})
 
 const currentUserId = computed(() => userStore.userInfo?.userId || userStore.userInfo?.id || null)
 const displaySource = computed(() => selectedOrder.value || (itemDetail.value ? { item: itemDetail.value } : null))
+const displayModel = computed(() => getItemDisplayModel(displaySource.value))
 const displayName = computed(() => getItemName(displaySource.value))
 const displayIcon = computed(() => getItemIcon(displaySource.value))
-const displayCategoryLabel = computed(() => getItemCategoryLabel(displaySource.value))
-const displayCollectionTypeLabel = computed(() => getCollectionTypeLabel(displaySource.value))
-const displayQualityText = computed(() => getQualityText(getItemQuality(displaySource.value)))
+const displayCategoryLabel = computed(() => displayModel.value.categoryLabel)
+const displayTypeText = computed(() => displayModel.value.typeText)
+const displayQualityText = computed(() => displayModel.value.qualityText)
 const displayTradeNotice = computed(() => getTradeNotice(displaySource.value))
 const displayReferencePrice = computed(() => getReferencePrice(displaySource.value))
 const bargainTargetName = computed(() => getItemName(bargainTargetOrder.value))
@@ -209,6 +364,15 @@ const bargainTargetMaxPrice = computed(() => {
   if (!Number.isFinite(price) || price <= 0.01) return undefined
   return Number((price - 0.01).toFixed(2))
 })
+
+const getDisplayBadgeClass = (badge) => {
+  if (!badge) return 'media-badge-unknown'
+  if (badge.kind === 'quality') return `media-badge-quality-${badge.code}`
+  if (badge.kind === 'category') return `media-badge-category-${badge.code || 'other'}`
+  return `media-badge-${badge.code || 'unknown'}`
+}
+
+const getDisplaySecondaryBadgeClass = (badge) => (badge ? `media-badge-type-${badge.code}` : '')
 
 const buildSource = (source) => {
   if (!source) {
@@ -229,10 +393,47 @@ const buildSource = (source) => {
   }
 }
 
-const favoriteTargetItemId = computed(() => {
-  const source = displaySource.value
+const isUnknownItem = (item) => {
+  if (!item) return false
+  return String(item.itemId || '').toLowerCase() === 'unknown' ||
+    String(item.name || '').toLowerCase() === 'unknown item' ||
+    item.nameCn === TEXT.unknownItem
+}
+
+const normalizeResolvedItemId = (value) => {
+  const normalized = String(value ?? '').trim()
+  if (!normalized || normalized.toLowerCase() === 'unknown') return null
+  return value
+}
+
+const getItemEntityId = (item) => {
+  if (!item || isUnknownItem(item)) return null
+  return normalizeResolvedItemId(item.id)
+}
+
+const getSourceItemId = (source, { allowRawFallback = true } = {}) => {
   if (!source) return null
-  return source.item?.id || source.itemId || itemDetail.value?.id || selectedOrder.value?.itemId || null
+
+  const current = buildSource(source)
+  if (isUnknownItem(current.item) || isUnknownItem(current.inventory?.item)) return null
+
+  const itemId = getItemEntityId(current.item) || getItemEntityId(current.inventory?.item)
+  if (itemId) return itemId
+
+  if (!allowRawFallback) return null
+  return normalizeResolvedItemId(source.itemId ?? (current.inventory ? null : source.id))
+}
+
+const resolveCurrentItemId = () => (
+  getSourceItemId({ item: itemDetail.value }, { allowRawFallback: false }) ||
+  getSourceItemId(displaySource.value)
+)
+
+const currentDisplayItemId = computed(resolveCurrentItemId)
+const favoriteTargetItemId = computed(resolveCurrentItemId)
+const matchingInventory = computed(() => {
+  const targetItemId = getSourceItemId(respondTargetOrder.value) || currentDisplayItemId.value
+  return respondInventory.value.filter((item) => Number(item?.itemId) === Number(targetItemId) && Number(item?.status ?? 0) === 0)
 })
 
 const favoriteButtonText = computed(() => (isFavorited.value ? TEXT.favorited : TEXT.favorite))
@@ -322,40 +523,21 @@ const getItemIcon = (source) => {
 
 const getItemCategory = (source) => resolveItemCategory(buildSource(source))
 const getItemSubCategory = (source) => resolveItemSubCategory(buildSource(source))
-const getItemType = (source) => resolveItemType(buildSource(source)) || 'Normal'
-
-const getItemExterior = (source) => {
-  const current = buildSource(source)
-  return resolveExteriorCode(
-    getWearNumber(source),
-    current.inventory?.exterior,
-    current.inventory?.wearName,
-    current.item?.exterior,
-    current.inventory?.name,
-    current.item?.nameCn,
-    current.item?.name
-  )
-}
-
-const getItemQuality = (source) => {
-  const current = buildSource(source)
-  return normalizeQualityKey(
-    current.inventory?.rarity ||
-      current.inventory?.item?.quality ||
-      current.item?.quality ||
-      current.item?.rarity ||
-      current.inventory?.item?.rarity
-  )
-}
+const getSourceDisplayModel = (source) => getItemDisplayModel(buildSource(source))
+const getItemType = (source) => getSourceDisplayModel(source).resolvedType || 'Normal'
+const getItemExterior = (source) => getSourceDisplayModel(source).filterExterior
+const getItemQuality = (source) => getSourceDisplayModel(source).resolvedQuality
 
 const getReferencePrice = (source) => {
   const current = buildSource(source)
   const candidates = [
+    current.item?.steamReferencePrice,
+    current.inventory?.item?.steamReferencePrice,
     current.item?.buffPrice,
+    current.inventory?.item?.buffPrice,
     current.item?.marketPrice,
     current.item?.lowestPrice,
-    current.inventory?.marketPrice,
-    current.price
+    current.inventory?.marketPrice
   ]
     .map((value) => Number(value))
     .filter((value) => Number.isFinite(value) && value > 0)
@@ -374,16 +556,23 @@ const getCategoryText = (category, subCategory = '') => {
 const getItemCategoryLabel = (source) => getCategoryText(getItemCategory(source), getItemSubCategory(source))
 const getExteriorText = (value) => EXTERIOR_TEXT_MAP[value] || value || TEXT.unknownExterior
 const getQualityText = (value) => QUALITY_TEXT_MAP[value] || value || TEXT.unknownQuality
-const getCollectionTypeLabel = (source) => TYPE_TEXT_MAP[getItemType(source)] || TEXT.normalType
+const getCollectionTypeLabel = (source) => getSourceDisplayModel(source).typeText || TEXT.normalType
 
 const getWearNumber = (source) => {
-  const current = buildSource(source)
-  return normalizeWearValue(current.inventory?.paintWear ?? current.paintWear)
+  const current = getSourceDisplayModel(source)
+  return normalizeWearValue(current.wearValue)
 }
 
-const getWearRange = (source) => WEAR_RANGE_MAP[getItemExterior(source)] || null
+const getWearRange = (source) => {
+  if (!getSourceDisplayModel(source).showWearModule) return null
+  return WEAR_RANGE_MAP[getItemExterior(source)] || null
+}
 
 const getWearDisplay = (source) => {
+  if (!getSourceDisplayModel(source).showWearModule) {
+    return '-'
+  }
+
   const wear = getWearNumber(source)
   if (wear !== null) {
     return formatWear(wear)
@@ -397,9 +586,14 @@ const getWearDisplay = (source) => {
   return '-'
 }
 
-const hasWearVisual = (source) => getWearNumber(source) !== null || !!getWearRange(source)
+const hasWearVisual = (source) =>
+  getSourceDisplayModel(source).showWearModule && (getWearNumber(source) !== null || !!getWearRange(source))
 
 const getWearPercent = (source) => {
+  if (!getSourceDisplayModel(source).showWearModule) {
+    return 0
+  }
+
   const wear = getWearNumber(source)
   if (wear !== null) {
     return Math.max(0, Math.min(wear, 1)) * 100
@@ -498,11 +692,6 @@ const getSearchKeyword = (source) => {
   return stripDecorations(getItemName(source))
 }
 
-const getSourceItemId = (source) => {
-  const current = buildSource(source)
-  return current.item?.id || source?.itemId || (current.inventory ? null : source?.id) || null
-}
-
 const getComparableItems = (items, source) => {
   const pool = []
   const seen = new Set()
@@ -589,7 +778,7 @@ const buildPriceStripEntries = (items, source) => {
       .map((item) => getReferencePrice(item))
       .filter((price) => Number.isFinite(price) && price > 0)
 
-    const fallbackPrice = currentExterior === exterior ? getReferencePrice(source) || Number(selectedOrder.value?.price || 0) : null
+    const fallbackPrice = currentExterior === exterior ? getReferencePrice(source) : null
     const target = pickVariantItem(comparableItems, source, { type: currentType, exterior })
     const isActive = currentExterior === exterior
 
@@ -694,6 +883,121 @@ const fetchSellOrders = async (itemId) => {
     sellOrders.value = Array.isArray(orders) ? orders : []
   } finally {
     sellOrdersLoading.value = false
+  }
+}
+
+const fetchBuyOrders = async (itemId) => {
+  buyOrders.value = []
+  if (!itemId) return
+
+  buyOrdersLoading.value = true
+  try {
+    const orders = await getBuyOrdersByItemId(itemId)
+    buyOrders.value = Array.isArray(orders) ? orders : []
+  } catch (error) {
+    buyOrders.value = []
+  } finally {
+    buyOrdersLoading.value = false
+  }
+}
+
+const getRemainingQuantity = (order) => {
+  const quantity = Number(order?.quantity || 0)
+  const filled = Number(order?.filledQuantity || 0)
+  return Math.max(quantity - filled, 0)
+}
+
+const openBuyOrderDialog = () => {
+  if (!userStore.isLoggedIn) {
+    showLoginModal.value = true
+    return
+  }
+
+  const targetItemId = currentDisplayItemId.value
+  if (!targetItemId) {
+    ElMessage.error(TEXT.notFound)
+    return
+  }
+
+  const suggestedPrice = displayReferencePrice.value || Number(selectedOrder.value?.price || 0) || 0.01
+  buyForm.value = {
+    price: Number(Math.max(suggestedPrice, 0.01).toFixed(2)),
+    quantity: 1
+  }
+  showBuyOrderDialog.value = true
+}
+
+const submitBuyOrder = async () => {
+  const targetItemId = currentDisplayItemId.value
+  const price = Number(buyForm.value.price)
+  const quantity = Number(buyForm.value.quantity || 1)
+
+  if (!targetItemId) {
+    ElMessage.error(TEXT.notFound)
+    return
+  }
+  if (!Number.isFinite(price) || price <= 0) {
+    ElMessage.warning(TEXT.inputValidBargainPrice)
+    return
+  }
+
+  buyCreating.value = true
+  try {
+    await createBuyOrder({
+      itemId: targetItemId,
+      price: Number(price.toFixed(2)),
+      quantity
+    })
+    ElMessage.success(TEXT.buyOrderCreatedSuccess)
+    showBuyOrderDialog.value = false
+    await fetchBuyOrders(targetItemId)
+  } catch (error) {
+    ElMessage.error(error?.message || TEXT.createBuyOrderFailed)
+  } finally {
+    buyCreating.value = false
+  }
+}
+
+const openRespondBuyDialog = async (order) => {
+  if (!userStore.isLoggedIn) {
+    showLoginModal.value = true
+    return
+  }
+  if (!order || order.userId === currentUserId.value) return
+
+  respondTargetOrder.value = order
+  respondForm.value.inventoryId = null
+  showRespondBuyDialog.value = true
+  respondInventoryLoading.value = true
+  try {
+    const inventory = await getMarketableInventory()
+    respondInventory.value = Array.isArray(inventory) ? inventory : []
+    if (matchingInventory.value.length === 1) {
+      respondForm.value.inventoryId = matchingInventory.value[0].id
+    }
+  } catch (error) {
+    respondInventory.value = []
+    ElMessage.error(error?.message || TEXT.noMatchingInventory)
+  } finally {
+    respondInventoryLoading.value = false
+  }
+}
+
+const submitRespondBuyOrder = async () => {
+  const order = respondTargetOrder.value
+  if (!order?.id || !respondForm.value.inventoryId) return
+
+  respondSubmitting.value = true
+  try {
+    await respondBuyOrder(order.id, { inventoryId: respondForm.value.inventoryId })
+    ElMessage.success(TEXT.respondBuySuccess)
+    showRespondBuyDialog.value = false
+    await fetchBuyOrders(getSourceItemId(order) || currentDisplayItemId.value)
+    router.push('/user/orders')
+  } catch (error) {
+    ElMessage.error(error?.message || TEXT.respondBuyFailed)
+  } finally {
+    respondSubmitting.value = false
   }
 }
 
@@ -837,6 +1141,7 @@ const fetchItemContext = async () => {
   selectedOrder.value = null
   itemDetail.value = null
   sellOrders.value = []
+  buyOrders.value = []
   relatedItems.value = []
 
   try {
@@ -853,7 +1158,9 @@ const fetchItemContext = async () => {
         }
       }
 
-      await fetchSellOrders(order?.itemId)
+      const resolvedItemId = getSourceItemId({ ...order, item: itemDetail.value || order?.item })
+      await fetchSellOrders(resolvedItemId)
+      await fetchBuyOrders(resolvedItemId)
 
       if (!sellOrders.value.length && order) {
         sellOrders.value = [order]
@@ -865,7 +1172,9 @@ const fetchItemContext = async () => {
 
     if (route.params.id) {
       itemDetail.value = await getItemById(route.params.id)
-      await fetchSellOrders(route.params.id)
+      const resolvedItemId = getSourceItemId({ item: itemDetail.value })
+      await fetchSellOrders(resolvedItemId)
+      await fetchBuyOrders(resolvedItemId)
       selectedOrder.value = sellOrders.value[0] || null
       await loadRelatedItems(selectedOrder.value || { item: itemDetail.value })
     }
@@ -873,6 +1182,7 @@ const fetchItemContext = async () => {
     selectedOrder.value = null
     itemDetail.value = null
     sellOrders.value = []
+    buyOrders.value = []
     relatedItems.value = []
     ElMessage.error(error?.message || TEXT.fetchDetailFailed)
   } finally {
@@ -1000,6 +1310,7 @@ watch(
 }
 
 .media-stage {
+  position: relative;
   width: 100%;
   min-height: 208px;
   display: flex;
@@ -1017,6 +1328,170 @@ watch(
   max-height: 162px;
   object-fit: contain;
   filter: drop-shadow(0 16px 24px rgba(0, 0, 0, 0.35));
+}
+
+.media-badge-row {
+  position: absolute;
+  left: 14px;
+  right: 14px;
+  top: 14px;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.media-badge {
+  display: inline-flex;
+  align-items: center;
+  min-height: 30px;
+  padding: 0 12px;
+  border-radius: 999px;
+  background: rgba(100, 116, 139, 0.9);
+  color: #ffffff;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.media-badge-secondary {
+  background: rgba(15, 23, 42, 0.95);
+  color: #ff8f1f;
+}
+
+.media-badge-FN {
+  background: rgba(34, 197, 94, 0.88);
+}
+
+.media-badge-MW {
+  background: rgba(132, 204, 22, 0.88);
+}
+
+.media-badge-FT {
+  background: rgba(245, 158, 11, 0.9);
+}
+
+.media-badge-WW {
+  background: rgba(148, 163, 184, 0.92);
+}
+
+.media-badge-BS {
+  background: rgba(239, 68, 68, 0.88);
+}
+
+.media-badge-quality-contraband {
+  background: rgba(245, 223, 77, 0.94);
+  color: #1f2937;
+}
+
+.media-badge-quality-covert {
+  background: rgba(244, 63, 94, 0.92);
+}
+
+.media-badge-quality-classified {
+  background: rgba(192, 38, 211, 0.92);
+}
+
+.media-badge-quality-restricted {
+  background: rgba(139, 92, 246, 0.92);
+}
+
+.media-badge-quality-mil-spec {
+  background: rgba(59, 130, 246, 0.92);
+}
+
+.media-badge-quality-industrial {
+  background: rgba(96, 165, 250, 0.92);
+}
+
+.media-badge-quality-consumer,
+.media-badge-category-case {
+  background: rgba(148, 163, 184, 0.92);
+}
+
+.media-badge-quality-extraordinary {
+  background: rgba(249, 115, 22, 0.92);
+}
+
+.media-badge-quality-exotic,
+.media-badge-category-graffiti,
+.media-badge-category-collectible {
+  background: rgba(168, 85, 247, 0.92);
+}
+
+.media-badge-quality-remarkable {
+  background: rgba(236, 72, 153, 0.92);
+}
+
+.media-badge-quality-high-grade {
+  background: rgba(79, 142, 247, 0.92);
+}
+
+.media-badge-quality-normal-grade {
+  background: rgba(226, 232, 240, 0.96);
+  color: #1f2937;
+}
+
+.media-badge-quality-agent-grade,
+.media-badge-category-agent {
+  background: rgba(34, 197, 94, 0.92);
+}
+
+.media-badge-category-sticker,
+.media-badge-category-music {
+  background: rgba(37, 99, 235, 0.92);
+}
+
+.media-badge-category-charm,
+.media-badge-category-tool {
+  background: rgba(15, 118, 110, 0.92);
+}
+
+.media-badge-category-pass {
+  background: rgba(154, 52, 18, 0.92);
+}
+
+.media-badge-type-Souvenir {
+  color: #fbbf24;
+}
+
+.media-badge-type-Star {
+  color: #ffffff;
+}
+
+.media-badge-type-StarStatTrak {
+  color: #ffb347;
+}
+
+.media-wear-panel {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+}
+
+.media-wear-text {
+  padding: 3px 12px 4px;
+  background: rgba(15, 23, 42, 0.82);
+  color: rgba(226, 232, 240, 0.86);
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+.media-wear-scale {
+  position: relative;
+  height: 6px;
+  background: linear-gradient(90deg, #22c55e 0%, #facc15 45%, #ef4444 100%);
+}
+
+.media-wear-marker {
+  position: absolute;
+  top: -5px;
+  width: 0;
+  height: 0;
+  border-left: 7px solid transparent;
+  border-right: 7px solid transparent;
+  border-top: 10px solid #e2e8f0;
+  transform: translateX(-50%);
 }
 
 .info-panel {
@@ -1142,6 +1617,155 @@ watch(
   margin-left: 0;
   border-radius: 10px;
   font-weight: 700;
+}
+
+.order-book-section {
+  margin-top: 28px;
+  overflow: hidden;
+  border-radius: 20px;
+  background: #ffffff;
+  box-shadow: 0 18px 42px rgba(15, 23, 42, 0.08);
+}
+
+.order-book-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 28px;
+  background: #111827;
+  color: #fff;
+}
+
+.order-book-tabs {
+  display: flex;
+  align-items: center;
+  gap: 24px;
+  min-height: 58px;
+}
+
+.order-book-tab {
+  position: relative;
+  border: 0;
+  background: transparent;
+  color: rgba(226, 232, 240, 0.74);
+  cursor: pointer;
+  font-size: 18px;
+  font-weight: 800;
+}
+
+.order-book-tab.active {
+  color: #ffffff;
+}
+
+.order-book-tab.active::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -18px;
+  height: 3px;
+  border-radius: 999px;
+  background: #60a5fa;
+}
+
+.order-book-count {
+  color: #dbeafe;
+  font-weight: 700;
+}
+
+.orders-panel {
+  min-width: 0;
+}
+
+.sell-orders-panel {
+  border-radius: 0;
+  margin-top: 0;
+  box-shadow: none;
+}
+
+.buy-orders-section {
+  margin-top: 0;
+  overflow: hidden;
+  border-radius: 0;
+  background: #ffffff;
+}
+
+.buy-orders-table {
+  min-height: 96px;
+  padding: 18px 24px 22px;
+}
+
+.buy-order-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1.6fr) minmax(130px, 0.6fr) minmax(120px, 0.5fr) auto;
+  gap: 18px;
+  align-items: center;
+  padding: 16px;
+  border: 1px solid #edf1f7;
+  border-radius: 16px;
+  background: #fffaf0;
+}
+
+.buy-order-row + .buy-order-row {
+  margin-top: 12px;
+}
+
+.buy-order-item {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  min-width: 0;
+}
+
+.buy-order-item img {
+  width: 74px;
+  height: 54px;
+  object-fit: contain;
+}
+
+.buy-order-item strong,
+.buy-order-buyer strong {
+  display: block;
+  overflow: hidden;
+  color: #172033;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.buy-order-item span,
+.buy-order-buyer span,
+.buy-order-price span {
+  display: block;
+  margin-bottom: 4px;
+  color: #94a3b8;
+  font-size: 13px;
+}
+
+.buy-order-price strong {
+  color: #f59e0b;
+  font-size: 22px;
+}
+
+.buy-order-row :deep(.el-button) {
+  width: 100%;
+  height: 34px;
+  border-radius: 10px;
+  font-weight: 700;
+}
+
+.dialog-static-value {
+  min-height: 36px;
+  padding: 8px 12px;
+  border-radius: 10px;
+  background: #f8fafc;
+  color: #172033;
+  font-weight: 700;
+}
+
+.form-help {
+  margin: 8px 0 0;
+  color: #f97316;
+  font-size: 13px;
 }
 
 .favorite-action {
@@ -1294,6 +1918,30 @@ watch(
 
   .hero-actions :deep(.el-button) {
     width: 100%;
+  }
+
+  .order-book-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 8px;
+    padding: 16px 18px;
+  }
+
+  .order-book-tabs {
+    min-height: 42px;
+  }
+
+  .order-book-tab {
+    font-size: 17px;
+  }
+
+  .order-book-tab.active::after {
+    bottom: -10px;
+  }
+
+  .buy-order-row {
+    grid-template-columns: 1fr;
+    align-items: start;
   }
 
 }

@@ -24,6 +24,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.HashMap;
 import java.util.Set;
@@ -50,6 +51,7 @@ public class SteamInventoryServiceImpl implements SteamInventoryService {
 
     // Steam物品图片URL前缀
     private static final String STEAM_IMAGE_URL = "https://steamcommunity-a.akamaihd.net/economy/image/";
+    private static final String STEAM_REFERENCE_CURRENCY = "CNY";
 
     @Override
     @Transactional(rollbackFor = Exception.class)
@@ -235,12 +237,7 @@ public class SteamInventoryServiceImpl implements SteamInventoryService {
 
         // 获取所有饰品用于匹配
         List<Item> allItems = itemMapper.selectAllActive();
-        Map<String, Item> itemMap = allItems.stream()
-                .collect(Collectors.toMap(
-                        item -> item.getNameCn() != null ? item.getNameCn().toLowerCase() : "",
-                        item -> item,
-                        (existing, replacement) -> existing
-                ));
+        Map<String, Item> itemMap = buildItemLookup(allItems);
 
         // 处理每个库存物品
         for (int i = 0; i < assets.size(); i++) {
@@ -308,6 +305,7 @@ public class SteamInventoryServiceImpl implements SteamInventoryService {
             // 获取物品名称
             String marketHashName = description.getString("market_hash_name");
             String name = description.getString("name");
+            inventory.setMarketHashName(marketHashName);
             inventory.setName(name != null ? name : marketHashName);
 
             // 获取图标URL
@@ -333,11 +331,15 @@ public class SteamInventoryServiceImpl implements SteamInventoryService {
             parseInventoryMetadata(asset, description, inventory);
 
             // 尝试匹配平台饰品
-            Item matchedItem = matchItem(inventory.getName(), itemMap);
+            Item matchedItem = matchItem(itemMap, marketHashName, inventory.getName());
+            if (matchedItem == null && marketHashName != null && !marketHashName.isBlank()) {
+                matchedItem = createItemFromInventory(marketHashName, inventory);
+                registerItemAliases(itemMap, matchedItem);
+            }
             if (matchedItem != null) {
                 inventory.setItemId(matchedItem.getId());
                 inventory.setItem(matchedItem);
-                inventory.setMarketPrice(matchedItem.getBuffPrice());
+                inventory.setMarketPrice(resolveReferencePrice(matchedItem));
                 inventory.setRarity(normalizeRarity(firstNonBlank(matchedItem.getQuality(), matchedItem.getRarity(), inventory.getRarity())));
                 inventory.setType(detectItemType(inventory.getName()));
                 inventory.setExterior(resolveExterior(
@@ -778,6 +780,7 @@ public class SteamInventoryServiceImpl implements SteamInventoryService {
 
         if (target.getItem() != null) {
             target.setRarity(normalizeRarity(firstNonBlank(target.getRarity(), target.getItem().getQuality(), target.getItem().getRarity())));
+            refreshReferencePrice(target);
         }
 
         target.setExterior(resolveExterior(
@@ -800,6 +803,7 @@ public class SteamInventoryServiceImpl implements SteamInventoryService {
         }
 
         target.setIconUrlLarge(firstNonBlank(live.getIconUrlLarge(), target.getIconUrlLarge()));
+        target.setMarketHashName(firstNonBlank(live.getMarketHashName(), target.getMarketHashName()));
         target.setPaintWear(firstNonNull(live.getPaintWear(), target.getPaintWear()));
         target.setExterior(resolveExterior(
                 target.getPaintWear(),
@@ -816,6 +820,13 @@ public class SteamInventoryServiceImpl implements SteamInventoryService {
         target.setRarity(normalizeRarity(firstNonBlank(live.getRarity(), target.getRarity())));
         target.setType(firstNonBlank(live.getType(), target.getType()));
         target.setMarketableReason(firstNonBlank(live.getMarketableReason(), resolveLocalMarketableReason(target)));
+    }
+
+    private void refreshReferencePrice(UserInventory target) {
+        BigDecimal referencePrice = resolveReferencePrice(target.getItem());
+        if (referencePrice != null && referencePrice.compareTo(BigDecimal.ZERO) > 0) {
+            target.setMarketPrice(referencePrice);
+        }
     }
 
     private String resolveLocalMarketableReason(UserInventory inventory) {
@@ -964,6 +975,53 @@ public class SteamInventoryServiceImpl implements SteamInventoryService {
         return null;
     }
 
+    private BigDecimal resolveReferencePrice(Item item) {
+        if (item == null) {
+            return BigDecimal.ZERO;
+        }
+
+        BigDecimal steamReferencePrice = item.getSteamReferencePrice();
+        if (steamReferencePrice != null && steamReferencePrice.compareTo(BigDecimal.ZERO) > 0) {
+            return steamReferencePrice;
+        }
+
+        BigDecimal buffPrice = item.getBuffPrice();
+        return buffPrice != null && buffPrice.compareTo(BigDecimal.ZERO) > 0 ? buffPrice : BigDecimal.ZERO;
+    }
+
+    private Item createItemFromInventory(String marketHashName, UserInventory inventory) {
+        if (marketHashName == null || marketHashName.isBlank()) {
+            return null;
+        }
+
+        Item existing = itemMapper.selectByItemId(marketHashName);
+        if (existing != null) {
+            return existing;
+        }
+
+        Item item = new Item();
+        item.setItemId(marketHashName);
+        item.setName(firstNonBlank(inventory.getName(), marketHashName));
+        item.setNameCn(firstNonBlank(inventory.getName(), marketHashName));
+        item.setCategory("other");
+        item.setSubCategory(inventory.getType());
+        item.setQuality(firstNonBlank(inventory.getRarity(), "common"));
+        item.setRarity(firstNonBlank(inventory.getRarity(), "common"));
+        item.setExterior(inventory.getExterior());
+        item.setIconUrl(inventory.getIconUrl());
+        item.setBuffPrice(BigDecimal.ZERO);
+        item.setSteamReferenceCurrency(STEAM_REFERENCE_CURRENCY);
+
+        item.setIsActive(1);
+        item.setCreatedAt(LocalDateTime.now());
+        item.setUpdatedAt(LocalDateTime.now());
+        itemMapper.insert(item);
+
+        log.info("Created inventory-backed item: itemId={}, name={}, steamReferencePrice={}",
+                item.getItemId(), item.getName(), item.getSteamReferencePrice());
+        return item;
+    }
+
     private Item getOrCreateUnknownItem() {
         // 尝试查找已存在的未知饰品
         List<Item> items = itemMapper.selectAllActive();
@@ -995,22 +1053,78 @@ public class SteamInventoryServiceImpl implements SteamInventoryService {
     /**
      * 匹配平台饰品
      */
-    private Item matchItem(String itemName, Map<String, Item> itemMap) {
-        if (itemName == null || itemName.isEmpty()) {
+    private Map<String, Item> buildItemLookup(List<Item> items) {
+        Map<String, Item> itemMap = new HashMap<>();
+        if (items == null) {
+            return itemMap;
+        }
+
+        for (Item item : items) {
+            registerItemAliases(itemMap, item);
+        }
+
+        return itemMap;
+    }
+
+    private void registerItemAliases(Map<String, Item> itemMap, Item item) {
+        if (itemMap == null || item == null) {
+            return;
+        }
+
+        addItemAlias(itemMap, item.getItemId(), item);
+        addItemAlias(itemMap, item.getName(), item);
+        addItemAlias(itemMap, item.getNameCn(), item);
+    }
+
+    private void addItemAlias(Map<String, Item> itemMap, String alias, Item item) {
+        String key = normalizeLookupKey(alias);
+        if (key != null) {
+            itemMap.putIfAbsent(key, item);
+        }
+    }
+
+    private String normalizeLookupKey(String value) {
+        if (value == null) {
+            return null;
+        }
+
+        String key = value.trim().toLowerCase(Locale.ROOT);
+        return key.isBlank() ? null : key;
+    }
+
+    private Item matchItem(Map<String, Item> itemMap, String... itemNames) {
+        if (itemMap == null || itemMap.isEmpty() || itemNames == null) {
             return null;
         }
 
         // 直接匹配
-        Item item = itemMap.get(itemName.toLowerCase());
-        if (item != null) {
-            return item;
+        for (String itemName : itemNames) {
+            String key = normalizeLookupKey(itemName);
+            if (key == null) {
+                continue;
+            }
+
+            Item item = itemMap.get(key);
+            if (item != null) {
+                return item;
+            }
         }
 
         // 尝试模糊匹配
-        for (Map.Entry<String, Item> entry : itemMap.entrySet()) {
-            String key = entry.getKey();
-            if (key.contains(itemName.toLowerCase()) || itemName.toLowerCase().contains(key)) {
-                return entry.getValue();
+        for (String itemName : itemNames) {
+            String searchName = normalizeLookupKey(itemName);
+            if (searchName == null) {
+                continue;
+            }
+
+            for (Map.Entry<String, Item> entry : itemMap.entrySet()) {
+                String key = entry.getKey();
+                if (key == null || key.isBlank()) {
+                    continue;
+                }
+                if (key.contains(searchName) || searchName.contains(key)) {
+                    return entry.getValue();
+                }
             }
         }
 
@@ -1072,28 +1186,6 @@ public class SteamInventoryServiceImpl implements SteamInventoryService {
         return filterInventoryForView(syncedInventory, marketableOnly);
     }
 
-    private List<UserInventory> buildPreferredInventoryView(Long userId, boolean marketableOnly) {
-        List<UserInventory> localInventory = userInventoryMapper.selectByUserId(userId);
-        localInventory.forEach(inspectMetadataService::repairAndPersist);
-
-        try {
-            User user = userMapper.selectById(userId);
-            if (user == null || user.getSteamId() == null || user.getSteamId().isEmpty()) {
-                return filterInventoryForView(localInventory, marketableOnly);
-            }
-
-            List<UserInventory> liveInventory = fetchSteamInventory(user.getSteamId(), userId);
-            Map<String, UserInventory> localMap = localInventory.stream()
-                    .collect(Collectors.toMap(UserInventory::getAssetId, inv -> inv, (left, right) -> left));
-
-            return buildSyncedInventoryView(liveInventory, localMap, marketableOnly);
-        } catch (Exception e) {
-            log.warn("获取 Steam 实时库存失败，回退为本地库存: userId={}, error={}", userId, e.getMessage());
-            enrichInventoryMetadata(userId, localInventory);
-            return filterInventoryForView(localInventory, marketableOnly);
-        }
-    }
-
     private List<UserInventory> filterInventoryForView(List<UserInventory> inventoryList, boolean marketableOnly) {
         if (!marketableOnly) {
             return inventoryList;
@@ -1122,6 +1214,7 @@ public class SteamInventoryServiceImpl implements SteamInventoryService {
         live.setItem(firstNonNull(local.getItem(), live.getItem()));
 
         live.setIconUrlLarge(firstNonBlank(live.getIconUrlLarge(), local.getIconUrlLarge()));
+        live.setMarketHashName(firstNonBlank(live.getMarketHashName(), local.getMarketHashName()));
         live.setPaintWear(firstNonNull(live.getPaintWear(), local.getPaintWear()));
         live.setExterior(resolveExterior(
                 live.getPaintWear(),
@@ -1150,6 +1243,7 @@ public class SteamInventoryServiceImpl implements SteamInventoryService {
         changed |= updateIfChanged(existing.getItemId(), latest.getItemId(), existing::setItemId);
         changed |= updateIfChanged(existing.getClassId(), latest.getClassId(), existing::setClassId);
         changed |= updateIfChanged(existing.getInstanceId(), latest.getInstanceId(), existing::setInstanceId);
+        changed |= updateIfChanged(existing.getMarketHashName(), latest.getMarketHashName(), existing::setMarketHashName);
         changed |= updateIfChanged(existing.getName(), latest.getName(), existing::setName);
         changed |= updateIfChanged(existing.getIconUrl(), latest.getIconUrl(), existing::setIconUrl);
         changed |= updateIfChanged(existing.getIconUrlLarge(), latest.getIconUrlLarge(), existing::setIconUrlLarge);
@@ -1189,31 +1283,6 @@ public class SteamInventoryServiceImpl implements SteamInventoryService {
         return true;
     }
 
-    private void enrichInventoryMetadata(Long userId, List<UserInventory> inventoryList) {
-        if (inventoryList == null || inventoryList.isEmpty()) {
-            return;
-        }
-
-        inventoryList.forEach(inspectMetadataService::repairAndPersist);
-
-        try {
-            User user = userMapper.selectById(userId);
-            if (user == null || user.getSteamId() == null || user.getSteamId().isEmpty()) {
-                return;
-            }
-
-            List<UserInventory> liveInventory = fetchSteamInventory(user.getSteamId(), userId);
-            Map<String, UserInventory> liveMap = liveInventory.stream()
-                    .collect(Collectors.toMap(UserInventory::getAssetId, inv -> inv, (left, right) -> left));
-
-            for (UserInventory inventory : inventoryList) {
-                mergeDisplayFields(inventory, liveMap.get(inventory.getAssetId()));
-            }
-        } catch (Exception e) {
-            log.warn("补充库存实时元数据失败，回退为本地快照: userId={}, error={}", userId, e.getMessage());
-        }
-    }
-
     /**
      * 修复 item_id 为 NULL 的库存记录
      * 重新匹配物品并更新 item_id 字段
@@ -1233,12 +1302,7 @@ public class SteamInventoryServiceImpl implements SteamInventoryService {
         
         // 获取所有物品用于匹配
         List<Item> allItems = itemMapper.selectAllActive();
-        Map<String, Item> itemMap = allItems.stream()
-                .collect(Collectors.toMap(
-                        item -> item.getNameCn() != null ? item.getNameCn().toLowerCase() : "",
-                        item -> item,
-                        (existing, replacement) -> existing
-                ));
+        Map<String, Item> itemMap = buildItemLookup(allItems);
         
         int fixedCount = 0;
         int notFoundCount = 0;
@@ -1246,12 +1310,12 @@ public class SteamInventoryServiceImpl implements SteamInventoryService {
         for (UserInventory inventory : nullItemInventories) {
             try {
                 // 尝试匹配物品
-                Item matchedItem = matchItem(inventory.getName(), itemMap);
+                Item matchedItem = matchItem(itemMap, inventory.getMarketHashName(), inventory.getName());
                 
                 if (matchedItem != null) {
                     // 匹配成功，更新 item_id
                     inventory.setItemId(matchedItem.getId());
-                    inventory.setMarketPrice(matchedItem.getBuffPrice());
+                    inventory.setMarketPrice(resolveReferencePrice(matchedItem));
                     userInventoryMapper.updateById(inventory);
                     fixedCount++;
                     log.info("修复成功：inventoryId={}, name={}, itemId={}", inventory.getId(), inventory.getName(), matchedItem.getId());

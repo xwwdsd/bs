@@ -15,6 +15,7 @@ import com.cs2trade.service.TradeOrderService;
 import com.cs2trade.service.WalletService;
 import com.cs2trade.service.WebSocketService;
 import com.cs2trade.service.impl.SteamTradeMonitorService.BotDeliveryCheckResult;
+import com.cs2trade.service.impl.SteamTradeMonitorService.SellerOfferDetectionResult;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -52,22 +53,22 @@ public class TradeOrderServiceImpl implements TradeOrderService {
     @Override
     @Transactional(rollbackFor = Exception.class)
     public TradeOrder createOrder(Long buyerId, Long sellOrderId, BigDecimal agreedPrice) {
-        log.info("创建订单: buyerId={}, sellOrderId={}", buyerId, sellOrderId);
+        log.info("创建交易订单: buyerId={}, sellOrderId={}", buyerId, sellOrderId);
 
         SellOrder sellOrder = sellOrderMapper.selectById(sellOrderId);
         if (sellOrder == null) {
             throw new RuntimeException("出售订单不存在");
         }
         if (sellOrder.getStatus() != SellOrder.STATUS_ON_SALE) {
-            throw new RuntimeException("该商品已不在售");
+            throw new RuntimeException("该物品当前不在售");
         }
         if (sellOrder.getUserId().equals(buyerId)) {
-            throw new RuntimeException("不能购买自己的商品");
+            throw new RuntimeException("不能购买自己的物品");
         }
 
         BigDecimal orderPrice = agreedPrice != null ? agreedPrice : sellOrder.getPrice();
         if (orderPrice == null || orderPrice.compareTo(BigDecimal.ZERO) <= 0) {
-            throw new RuntimeException("鎴愪氦浠锋牸鏃犳晥");
+            throw new RuntimeException("订单价格无效");
         }
 
         TradeOrder order = new TradeOrder();
@@ -131,14 +132,19 @@ public class TradeOrderServiceImpl implements TradeOrderService {
 
         tradeOrderMapper.updatePaidStatus(orderId, TradeOrder.STATUS_PAID);
         webSocketService.sendPaymentNotification(order.getSellerId(), orderId, order.getPrice().toString());
-        webSocketService.sendOrderStatusUpdate(buyerId, orderId, TradeOrder.STATUS_PAID, "订单已支付，等待卖家发送 Steam 报价");
+        webSocketService.sendOrderStatusUpdate(
+                buyerId,
+                orderId,
+                TradeOrder.STATUS_PAID,
+                "订单已支付，等待卖家在 Steam 发货，系统会自动检测报价"
+        );
         return true;
     }
 
     @Override
     @Transactional(rollbackFor = Exception.class)
     public boolean shipOrder(Long orderId, Long sellerId, String tradeOfferId, String tradeOfferUrl) {
-        log.info("登记卖家报价: orderId={}, sellerId={}", orderId, sellerId);
+        log.info("检测卖家发货: orderId={}, sellerId={}", orderId, sellerId);
 
         TradeOrder order = tradeOrderMapper.selectById(orderId);
         if (order == null) {
@@ -150,23 +156,20 @@ public class TradeOrderServiceImpl implements TradeOrderService {
         if (order.getStatus() != TradeOrder.STATUS_PAID) {
             throw new RuntimeException("订单状态不正确");
         }
+
         if (tradeOfferId == null || tradeOfferId.isBlank()) {
-            throw new RuntimeException("请输入卖家发出的 Steam 报价 ID");
+            SellerOfferDetectionResult detectedOffer = steamTradeMonitorService.detectSellerOffer(order);
+            if (!detectedOffer.isFound()) {
+                throw new RuntimeException(firstNonBlank(
+                        detectedOffer.getErrorMessage(),
+                        "暂未检测到你发给买家的 Steam 报价，请先在 Steam 中发货后稍后再试"
+                ));
+            }
+            tradeOfferId = detectedOffer.getTradeOfferId();
+            tradeOfferUrl = firstNonBlank(detectedOffer.getTradeOfferUrl(), tradeOfferUrl);
         }
 
-        tradeOrderMapper.registerBotOffer(
-                orderId,
-                TradeOrder.STATUS_OFFERING,
-                tradeOfferId,
-                tradeOfferUrl,
-                TradeOrder.DELIVERY_STAGE_SELLER_OFFER_SENT
-        );
-
-        webSocketService.sendShipmentNotification(order.getBuyerId(), orderId, tradeOfferUrl);
-        webSocketService.sendOrderStatusUpdate(order.getBuyerId(), orderId, TradeOrder.STATUS_OFFERING,
-                "卖家已向你发送 Steam 报价，系统将自动检测报价状态和你的库存");
-        webSocketService.sendOrderStatusUpdate(order.getSellerId(), orderId, TradeOrder.STATUS_OFFERING,
-                "卖家报价已登记，系统正在自动检测报价状态");
+        registerSellerOffer(order, tradeOfferId, tradeOfferUrl);
         return true;
     }
 
@@ -200,6 +203,19 @@ public class TradeOrderServiceImpl implements TradeOrderService {
             throw new RuntimeException("无权操作该订单");
         }
 
+        if (order.getStatus() == TradeOrder.STATUS_PAID
+                && (order.getTradeOfferId() == null || order.getTradeOfferId().isBlank())) {
+            SellerOfferDetectionResult detectedOffer = steamTradeMonitorService.detectSellerOffer(order);
+            if (detectedOffer.isFound()) {
+                registerSellerOffer(order, detectedOffer.getTradeOfferId(), detectedOffer.getTradeOfferUrl());
+                order = tradeOrderMapper.selectById(orderId);
+            }
+        }
+
+        if (order.getTradeOfferId() == null || order.getTradeOfferId().isBlank()) {
+            throw new RuntimeException("暂未检测到 Steam 报价，请先在 Steam 发货后稍后再试");
+        }
+
         inspectAndApplyDelivery(order);
         return getOrderById(orderId);
     }
@@ -207,7 +223,7 @@ public class TradeOrderServiceImpl implements TradeOrderService {
     @Override
     @Transactional(rollbackFor = Exception.class)
     public boolean confirmReceipt(Long orderId, Long buyerId) {
-        log.info("买家手动确认收货: orderId={}, buyerId={}", orderId, buyerId);
+        log.info("买家确认收货: orderId={}, buyerId={}", orderId, buyerId);
 
         TradeOrder order = tradeOrderMapper.selectById(orderId);
         if (order == null) {
@@ -289,6 +305,24 @@ public class TradeOrderServiceImpl implements TradeOrderService {
     }
 
     @Transactional(rollbackFor = Exception.class)
+    public void pollPendingShipmentOrders() {
+        List<TradeOrder> orders = tradeOrderMapper.selectPendingShipmentForAutoDetection(
+                TradeOrder.STATUS_PAID,
+                botProperties.getBatchSize()
+        );
+        for (TradeOrder order : orders) {
+            try {
+                SellerOfferDetectionResult detectedOffer = steamTradeMonitorService.detectSellerOffer(order);
+                if (detectedOffer.isFound()) {
+                    registerSellerOffer(order, detectedOffer.getTradeOfferId(), detectedOffer.getTradeOfferUrl());
+                }
+            } catch (Exception e) {
+                log.warn("自动检测卖家发货失败: orderId={}, error={}", order.getId(), e.getMessage());
+            }
+        }
+    }
+
+    @Transactional(rollbackFor = Exception.class)
     public void pollOfferingOrders() {
         List<TradeOrder> orders = tradeOrderMapper.selectByStatusForMonitoring(
                 TradeOrder.STATUS_OFFERING,
@@ -298,7 +332,7 @@ public class TradeOrderServiceImpl implements TradeOrderService {
             try {
                 inspectAndApplyDelivery(order);
             } catch (Exception e) {
-                log.warn("自动检测卖家报价失败: orderId={}, error={}", order.getId(), e.getMessage());
+                log.warn("自动检测报价状态失败: orderId={}, error={}", order.getId(), e.getMessage());
             }
         }
     }
@@ -337,9 +371,37 @@ public class TradeOrderServiceImpl implements TradeOrderService {
             webSocketService.sendOrderCompletedNotification(order.getBuyerId(), order.getId(), false);
             webSocketService.sendOrderCompletedNotification(order.getSellerId(), order.getId(), true);
         } else if (result.isTerminalFailure()) {
-            webSocketService.sendOrderStatusUpdate(order.getSellerId(), order.getId(), TradeOrder.STATUS_PAID,
-                    firstNonBlank(result.getErrorMessage(), "Steam 报价已结束，请重新发送报价"));
+            webSocketService.sendOrderStatusUpdate(
+                    order.getSellerId(),
+                    order.getId(),
+                    TradeOrder.STATUS_PAID,
+                    firstNonBlank(result.getErrorMessage(), "Steam 报价已结束，请重新发送报价")
+            );
         }
+    }
+
+    private void registerSellerOffer(TradeOrder order, String tradeOfferId, String tradeOfferUrl) {
+        tradeOrderMapper.registerBotOffer(
+                order.getId(),
+                TradeOrder.STATUS_OFFERING,
+                tradeOfferId,
+                tradeOfferUrl,
+                TradeOrder.DELIVERY_STAGE_SELLER_OFFER_SENT
+        );
+
+        webSocketService.sendShipmentNotification(order.getBuyerId(), order.getId(), tradeOfferUrl);
+        webSocketService.sendOrderStatusUpdate(
+                order.getBuyerId(),
+                order.getId(),
+                TradeOrder.STATUS_OFFERING,
+                "卖家已向你发送 Steam 报价，系统将自动检测报价状态和你的库存"
+        );
+        webSocketService.sendOrderStatusUpdate(
+                order.getSellerId(),
+                order.getId(),
+                TradeOrder.STATUS_OFFERING,
+                "已检测到卖家报价，系统正在自动跟踪报价状态"
+        );
     }
 
     private void settleCompletedOrder(TradeOrder order) {
@@ -367,7 +429,7 @@ public class TradeOrderServiceImpl implements TradeOrderService {
             try {
                 order.setInventory(userInventoryMapper.selectById(order.getInventoryId()));
             } catch (Exception e) {
-                log.debug("填充订单库存失败: orderId={}, inventoryId={}", order.getId(), order.getInventoryId());
+                log.debug("补充订单库存失败: orderId={}, inventoryId={}", order.getId(), order.getInventoryId());
             }
         }
         if (order.getBuyerId() != null) {

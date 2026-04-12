@@ -43,11 +43,17 @@
         <div class="items-grid">
           <div v-for="item in hotItems" :key="item.id" class="item-card" @click="goToDetail(item)">
             <div class="card-image">
-              <div class="wear-tag">{{ getItemExterior(item) || '未知外观' }}</div>
+              <div class="card-badge-row">
+                <div class="wear-tag" :class="getCardBadgeClass(item)">{{ getCardBadgeText(item) }}</div>
+                <span v-if="getCardSecondaryBadgeText(item)" class="type-tag" :class="getCardSecondaryBadgeClass(item)">
+                  {{ getCardSecondaryBadgeText(item) }}
+                </span>
+              </div>
               <img :src="getItemIcon(item)" :alt="getItemName(item)" />
             </div>
             <div class="card-info">
               <h4 class="card-name">{{ getItemName(item) }}</h4>
+              <p class="card-subtitle">{{ getCardSubtitle(item) }}</p>
               <p class="card-price">¥ {{ formatPrice(item.price) }}</p>
             </div>
           </div>
@@ -68,11 +74,17 @@
         <div class="items-grid">
           <div v-for="item in newItems" :key="item.id" class="item-card" @click="goToDetail(item)">
             <div class="card-image">
-              <div class="wear-tag">{{ getItemExterior(item) || '未知外观' }}</div>
+              <div class="card-badge-row">
+                <div class="wear-tag" :class="getCardBadgeClass(item)">{{ getCardBadgeText(item) }}</div>
+                <span v-if="getCardSecondaryBadgeText(item)" class="type-tag" :class="getCardSecondaryBadgeClass(item)">
+                  {{ getCardSecondaryBadgeText(item) }}
+                </span>
+              </div>
               <img :src="getItemIcon(item)" :alt="getItemName(item)" />
             </div>
             <div class="card-info">
               <h4 class="card-name">{{ getItemName(item) }}</h4>
+              <p class="card-subtitle">{{ getCardSubtitle(item) }}</p>
               <p class="card-price">¥ {{ formatPrice(item.price) }}</p>
             </div>
           </div>
@@ -91,11 +103,7 @@ import { getMarketList } from '@/api/sellOrder'
 import { getActiveBanners } from '@/api/banner'
 import LoginModal from '@/components/LoginModal.vue'
 import SiteHeader from '@/components/SiteHeader.vue'
-import {
-  getExteriorText,
-  normalizeWearValue,
-  resolveExterior as resolveExteriorCode
-} from '@/utils/itemExterior'
+import { getItemDisplayModel } from '@/utils/itemDisplay'
 
 const router = useRouter()
 const showLoginModal = ref(false)
@@ -127,18 +135,21 @@ const fetchItems = async () => {
 
 const getItemName = (item) => item.item?.nameCn || item.item?.name || item.inventory?.name || '未知饰品'
 const getItemIcon = (item) => item.inventory?.iconUrl || item.item?.iconUrl || '/default-item.png'
-const getItemExterior = (item) =>
-  getExteriorText(
-    resolveExteriorCode(
-      normalizeWearValue(item?.inventory?.paintWear ?? item?.paintWear),
-      item?.inventory?.exterior,
-      item?.inventory?.wearName,
-      item?.item?.exterior,
-      item?.inventory?.name,
-      item?.item?.nameCn,
-      item?.item?.name
-    )
-  )
+const getCardDisplayModel = (item) => getItemDisplayModel(item)
+const getCardBadgeText = (item) => getCardDisplayModel(item).primaryBadge.text
+const getCardBadgeClass = (item) => {
+  const badge = getCardDisplayModel(item).primaryBadge
+  if (!badge) return ''
+  if (badge.kind === 'quality') return `wear-tag-quality-${badge.code}`
+  if (badge.kind === 'category') return `wear-tag-category-${badge.code || 'other'}`
+  return `wear-tag-${badge.code || 'UN'}`
+}
+const getCardSecondaryBadgeText = (item) => getCardDisplayModel(item).secondaryBadge?.text || ''
+const getCardSecondaryBadgeClass = (item) => {
+  const badge = getCardDisplayModel(item).secondaryBadge
+  return badge ? `type-tag-${badge.code}` : ''
+}
+const getCardSubtitle = (item) => getCardDisplayModel(item).subtitle
 const formatPrice = (price) => Number(price || 0).toFixed(2)
 
 const goToDetail = (item) => {
@@ -305,15 +316,154 @@ onMounted(() => {
   object-fit: contain;
 }
 
-.wear-tag {
+.card-badge-row {
   position: absolute;
   left: 8px;
+  right: 8px;
   top: 8px;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.wear-tag {
   padding: 5px 8px;
   border-radius: 999px;
   background: #5d8a42;
   color: #fff;
   font-size: 12px;
+}
+
+.wear-tag-FN {
+  background: #329545;
+}
+
+.wear-tag-MW {
+  background: #5d9545;
+}
+
+.wear-tag-FT {
+  background: #efab3d;
+}
+
+.wear-tag-WW {
+  background: #8c8f96;
+}
+
+.wear-tag-BS {
+  background: #c85050;
+}
+
+.wear-tag-category-sticker,
+.wear-tag-category-music {
+  background: #2563eb;
+}
+
+.wear-tag-category-graffiti {
+  background: #7c3aed;
+}
+
+.wear-tag-category-charm {
+  background: #0f766e;
+}
+
+.wear-tag-category-agent {
+  background: #16a34a;
+}
+
+.wear-tag-category-case {
+  background: #475569;
+}
+
+.wear-tag-category-tool {
+  background: #0f766e;
+}
+
+.wear-tag-category-pass {
+  background: #7c2d12;
+}
+
+.wear-tag-category-collectible {
+  background: #7c3aed;
+}
+
+.wear-tag-quality-contraband {
+  background: #f5df4d;
+  color: #1f2937;
+}
+
+.wear-tag-quality-covert {
+  background: #d9485f;
+}
+
+.wear-tag-quality-classified {
+  background: #c84cff;
+}
+
+.wear-tag-quality-restricted {
+  background: #8b5cf6;
+}
+
+.wear-tag-quality-mil-spec {
+  background: #3b82f6;
+}
+
+.wear-tag-quality-industrial {
+  background: #60a5fa;
+}
+
+.wear-tag-quality-consumer {
+  background: #94a3b8;
+}
+
+.wear-tag-quality-extraordinary {
+  background: #f97316;
+}
+
+.wear-tag-quality-exotic {
+  background: #a855f7;
+}
+
+.wear-tag-quality-remarkable {
+  background: #ec4899;
+}
+
+.wear-tag-quality-high-grade {
+  background: #4f8ef7;
+}
+
+.wear-tag-quality-normal-grade {
+  background: #e5e7eb;
+  color: #1f2937;
+}
+
+.wear-tag-quality-agent-grade {
+  background: #22c55e;
+}
+
+.type-tag {
+  display: inline-flex;
+  align-items: center;
+  height: 26px;
+  padding: 0 10px;
+  border-radius: 999px;
+  background: rgba(15, 21, 34, 0.95);
+  color: #ff8f1f;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.type-tag-Souvenir {
+  color: #fbbf24;
+}
+
+.type-tag-Star {
+  color: #f8fafc;
+}
+
+.type-tag-StarStatTrak {
+  color: #ffb347;
 }
 
 .card-info {
@@ -330,6 +480,13 @@ onMounted(() => {
   line-height: 1.45;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
+}
+
+.card-subtitle {
+  margin: 0 0 8px;
+  color: #6b7280;
+  font-size: 13px;
+  line-height: 1.4;
 }
 
 .card-price {

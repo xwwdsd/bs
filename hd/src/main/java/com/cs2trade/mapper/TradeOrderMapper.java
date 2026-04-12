@@ -155,6 +155,16 @@ public interface TradeOrderMapper {
             SELECT *
             FROM trade_order
             WHERE status = #{status}
+              AND trade_offer_id IS NULL
+            ORDER BY updated_at ASC
+            LIMIT #{limit}
+            """)
+    List<TradeOrder> selectPendingShipmentForAutoDetection(@Param("status") Integer status, @Param("limit") Integer limit);
+
+    @Select("""
+            SELECT *
+            FROM trade_order
+            WHERE status = #{status}
               AND trade_offer_id IS NOT NULL
             ORDER BY updated_at ASC
             LIMIT #{limit}

@@ -103,6 +103,26 @@ public class Item implements Serializable {
     private BigDecimal buffPrice;
 
     /**
+     * Steam reference price.
+     */
+    private BigDecimal steamReferencePrice;
+
+    /**
+     * Steam reference price currency.
+     */
+    private String steamReferenceCurrency;
+
+    /**
+     * Steam reference price source.
+     */
+    private String steamReferencePriceSource;
+
+    /**
+     * Steam reference price update time.
+     */
+    private LocalDateTime steamReferencePriceUpdatedAt;
+
+    /**
      * 是否启用
      * 0: 禁用
      * 1: 启用

@@ -11,14 +11,19 @@ import com.cs2trade.mapper.UserMapper;
 import com.cs2trade.service.InspectMetadataService;
 import com.cs2trade.service.SellOrderService;
 import com.cs2trade.service.SteamInventoryService;
+import com.cs2trade.util.SteamApiClient;
+import com.alibaba.fastjson2.JSONObject;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /**
  * 出售订单服务实现类
@@ -38,6 +43,11 @@ public class SellOrderServiceImpl implements SellOrderService {
     private final ItemMapper itemMapper;
     private final SteamInventoryService steamInventoryService;
     private final InspectMetadataService inspectMetadataService;
+    private final SteamApiClient steamApiClient;
+
+    private static final String STEAM_REFERENCE_CURRENCY = "CNY";
+    private static final String STEAM_REFERENCE_PRICE_SOURCE = "steam_market_priceoverview";
+    private static final Pattern PRICE_TEXT_PATTERN = Pattern.compile("(\\d+(?:\\.\\d{1,2})?)");
 
     @Override
     @Transactional(rollbackFor = Exception.class)
@@ -290,6 +300,8 @@ public class SellOrderServiceImpl implements SellOrderService {
         }
 
         // 查询用户信息
+        preferInventoryItem(order);
+
         if (order.getUserId() != null) {
             try {
                 order.setUser(userMapper.selectById(order.getUserId()));
@@ -297,6 +309,104 @@ public class SellOrderServiceImpl implements SellOrderService {
                 log.warn("获取用户信息失败: userId={}", order.getUserId());
             }
         }
+    }
+
+    private void preferInventoryItem(SellOrder order) {
+        if (order == null || order.getInventory() == null) {
+            return;
+        }
+
+        UserInventory inventory = order.getInventory();
+        Item inventoryItem = inventory.getItem();
+        if (inventoryItem == null || isUnknownItem(inventoryItem)) {
+            return;
+        }
+
+        Long resolvedItemId = inventory.getItemId() != null ? inventory.getItemId() : inventoryItem.getId();
+        if (resolvedItemId == null) {
+            return;
+        }
+
+        Item fullInventoryItem = itemMapper.selectById(resolvedItemId);
+        if (fullInventoryItem != null) {
+            inventoryItem = fullInventoryItem;
+            inventory.setItem(fullInventoryItem);
+        }
+        ensureSteamReferencePrice(inventoryItem, inventory.getMarketHashName());
+
+        Item orderItem = order.getItem();
+        if (orderItem != null && !isUnknownItem(orderItem) && order.getItemId() != null
+                && order.getItemId().equals(resolvedItemId)) {
+            order.setItem(inventoryItem);
+            return;
+        }
+
+        order.setItemId(resolvedItemId);
+        order.setItem(inventoryItem);
+        try {
+            sellOrderMapper.updateItemId(order.getId(), resolvedItemId);
+        } catch (Exception e) {
+            log.warn("淇鍑哄敭璁㈠崟 item_id 澶辫触: orderId={}, itemId={}", order.getId(), inventory.getItemId());
+        }
+    }
+
+    private boolean isUnknownItem(Item item) {
+        return item == null
+                || "unknown".equalsIgnoreCase(item.getItemId())
+                || "Unknown Item".equalsIgnoreCase(item.getName());
+    }
+
+    private void ensureSteamReferencePrice(Item item, String marketHashName) {
+        if (item == null || marketHashName == null || marketHashName.isBlank()) {
+            return;
+        }
+        if (item.getSteamReferencePrice() != null && item.getSteamReferencePrice().compareTo(BigDecimal.ZERO) > 0) {
+            return;
+        }
+
+        JSONObject overview = steamApiClient.getMarketPriceOverview(marketHashName);
+        if (overview == null || !overview.getBooleanValue("success")) {
+            return;
+        }
+
+        BigDecimal price = parsePriceText(overview.getString("lowest_price"), overview.getString("median_price"));
+        if (price == null || price.compareTo(BigDecimal.ZERO) <= 0) {
+            return;
+        }
+
+        item.setSteamReferencePrice(price);
+        item.setSteamReferenceCurrency(STEAM_REFERENCE_CURRENCY);
+        item.setSteamReferencePriceSource(STEAM_REFERENCE_PRICE_SOURCE);
+        item.setSteamReferencePriceUpdatedAt(LocalDateTime.now());
+        itemMapper.updateById(item);
+    }
+
+    private BigDecimal parsePriceText(String... texts) {
+        if (texts == null) {
+            return null;
+        }
+
+        for (String text : texts) {
+            if (text == null || text.isBlank()) {
+                continue;
+            }
+
+            Matcher matcher = PRICE_TEXT_PATTERN.matcher(text.replace(",", ""));
+            if (!matcher.find()) {
+                continue;
+            }
+
+            try {
+                BigDecimal value = new BigDecimal(matcher.group(1)).setScale(2, RoundingMode.HALF_UP);
+                if (value.compareTo(BigDecimal.ZERO) > 0) {
+                    return value;
+                }
+            } catch (NumberFormatException ignored) {
+                // Try the next candidate.
+            }
+        }
+
+        return null;
     }
 
     @Override

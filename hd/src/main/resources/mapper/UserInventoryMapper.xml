@@ -18,6 +18,7 @@
         <result column="asset_id" property="assetId"/>
         <result column="class_id" property="classId"/>
         <result column="instance_id" property="instanceId"/>
+        <result column="market_hash_name" property="marketHashName"/>
         <result column="name" property="name"/>
         <result column="icon_url" property="iconUrl"/>
         <result column="icon_url_large" property="iconUrlLarge"/>
@@ -39,6 +40,7 @@
         <!-- 关联饰品信息 -->
         <association property="item" javaType="com.cs2trade.entity.Item">
             <id column="item_id" property="id"/>
+            <result column="item_item_id" property="itemId"/>
             <result column="item_name" property="name"/>
             <result column="item_name_cn" property="nameCn"/>
             <result column="item_category" property="category"/>
@@ -46,12 +48,16 @@
             <result column="item_exterior" property="exterior"/>
             <result column="item_icon_url" property="iconUrl"/>
             <result column="item_buff_price" property="buffPrice"/>
+            <result column="item_steam_reference_price" property="steamReferencePrice"/>
+            <result column="item_steam_reference_currency" property="steamReferenceCurrency"/>
+            <result column="item_steam_reference_price_source" property="steamReferencePriceSource"/>
+            <result column="item_steam_reference_price_updated_at" property="steamReferencePriceUpdatedAt"/>
         </association>
     </resultMap>
 
     <!-- 基础列列表 -->
     <sql id="Base_Column_List">
-        ui.id, ui.user_id, ui.item_id, ui.asset_id, ui.class_id, ui.instance_id,
+        ui.id, ui.user_id, ui.item_id, ui.asset_id, ui.class_id, ui.instance_id, ui.market_hash_name,
         ui.name, ui.icon_url, ui.icon_url_large, ui.exterior, ui.paint_seed, ui.paint_index, ui.paint_wear,
         ui.inspect_url, ui.description, ui.marketable_reason, ui.rarity, ui.type,
         ui.is_marketable, ui.status, ui.market_price, ui.acquired_at, ui.created_at, ui.updated_at
@@ -59,9 +65,13 @@
 
     <!-- 关联饰品列列表 -->
     <sql id="Item_Column_List">
-        i.id as item_id, i.name as item_name, i.name_cn as item_name_cn,
+        i.id as item_id, i.item_id as item_item_id, i.name as item_name, i.name_cn as item_name_cn,
         i.category as item_category, i.quality as item_quality, i.exterior as item_exterior,
-        i.icon_url as item_icon_url, i.buff_price as item_buff_price
+        i.icon_url as item_icon_url, i.buff_price as item_buff_price,
+        i.steam_reference_price as item_steam_reference_price,
+        i.steam_reference_currency as item_steam_reference_currency,
+        i.steam_reference_price_source as item_steam_reference_price_source,
+        i.steam_reference_price_updated_at as item_steam_reference_price_updated_at
     </sql>
 
     <!-- 根据ID查询库存物品 -->
@@ -109,11 +119,11 @@
     <!-- 插入新库存物品 -->
     <insert id="insert" useGeneratedKeys="true" keyProperty="id">
         INSERT INTO user_inventory (
-            user_id, item_id, asset_id, class_id, instance_id, name, icon_url, icon_url_large,
+            user_id, item_id, asset_id, class_id, instance_id, market_hash_name, name, icon_url, icon_url_large,
             exterior, paint_seed, paint_index, paint_wear, inspect_url, description,
             marketable_reason, rarity, type, is_marketable, status, market_price, acquired_at, created_at, updated_at
         ) VALUES (
-            #{userId}, #{itemId}, #{assetId}, #{classId}, #{instanceId}, #{name}, #{iconUrl}, #{iconUrlLarge},
+            #{userId}, #{itemId}, #{assetId}, #{classId}, #{instanceId}, #{marketHashName}, #{name}, #{iconUrl}, #{iconUrlLarge},
             #{exterior}, #{paintSeed}, #{paintIndex}, #{paintWear}, #{inspectUrl}, #{description},
             #{marketableReason}, #{rarity}, #{type}, #{isMarketable}, #{status}, #{marketPrice}, #{acquiredAt}, NOW(), NOW()
         )
@@ -127,6 +137,7 @@
             <if test="assetId != null">asset_id = #{assetId},</if>
             <if test="classId != null">class_id = #{classId},</if>
             <if test="instanceId != null">instance_id = #{instanceId},</if>
+            <if test="marketHashName != null">market_hash_name = #{marketHashName},</if>
             <if test="name != null">name = #{name},</if>
             <if test="iconUrl != null">icon_url = #{iconUrl},</if>
             <if test="iconUrlLarge != null">icon_url_large = #{iconUrlLarge},</if>
