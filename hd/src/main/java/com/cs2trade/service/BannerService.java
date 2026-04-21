@@ -11,4 +11,5 @@ public interface BannerService {
     Banner updateBanner(Banner banner);
     boolean deleteBanner(Long id);
     boolean updateBannerStatus(Long id, Integer status);
+    boolean updateBannerSort(Long id, Integer sortOrder);
 }

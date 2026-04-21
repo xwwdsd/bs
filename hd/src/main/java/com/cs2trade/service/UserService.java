@@ -72,9 +72,10 @@ public interface UserService {
      * @param userId 用户ID
      * @param nickname 昵称
      * @param avatar 头像
+     * @param email 邮箱
      * @return User 更新后的用户
      */
-    User updateProfile(Long userId, String nickname, String avatar);
+    User updateProfile(Long userId, String nickname, String avatar, String email);
 
     /**
      * 更新Steam交易链接

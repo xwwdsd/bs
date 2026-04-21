@@ -1,6 +1,7 @@
 package com.cs2trade.util;
 
 import com.alibaba.fastjson2.JSON;
+import com.alibaba.fastjson2.JSONArray;
 import com.alibaba.fastjson2.JSONObject;
 import jakarta.annotation.PostConstruct;
 import lombok.extern.slf4j.Slf4j;
@@ -23,12 +24,15 @@ import java.security.SecureRandom;
 import java.security.cert.X509Certificate;
 import java.time.Duration;
 import java.util.concurrent.TimeUnit;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 @Slf4j
 @Component
 public class SteamApiClient {
 
     private static final String STEAM_INVENTORY_URL = "https://steamcommunity.com/inventory/%s/730/2";
+    private static final Pattern STEAM_LISTING_HISTORY_PATTERN = Pattern.compile("var\\s+line1\\s*=\\s*(\\[.*?]);", Pattern.DOTALL);
 
     @Value("${steam.proxy.enabled:false}")
     private boolean proxyEnabled;
@@ -95,9 +99,64 @@ public class SteamApiClient {
     }
 
     public JSONObject getInventory(String steamId) {
-        String url = String.format(STEAM_INVENTORY_URL, steamId) + "?l=schinese&count=2000";
-        log.info("Request Steam inventory: steamId={}, url={}", steamId, url);
+        JSONArray mergedAssets = new JSONArray();
+        JSONArray mergedDescriptions = new JSONArray();
+        JSONArray mergedAssetProperties = new JSONArray();
+        JSONObject mergedPayload = null;
+        String lastAssetId = null;
+        int page = 0;
 
+        while (page < 50) {
+            StringBuilder urlBuilder = new StringBuilder(String.format(STEAM_INVENTORY_URL, steamId))
+                    .append("?l=schinese&count=2000");
+            if (lastAssetId != null && !lastAssetId.isBlank()) {
+                urlBuilder.append("&last_assetid=").append(lastAssetId);
+            }
+
+            String url = urlBuilder.toString();
+            log.info("Request Steam inventory page: steamId={}, page={}, lastAssetId={}, url={}",
+                    steamId, page + 1, lastAssetId, url);
+
+            JSONObject pagePayload = requestInventoryPage(url);
+            if (pagePayload == null) {
+                return mergedPayload;
+            }
+
+            if (mergedPayload == null) {
+                mergedPayload = JSON.parseObject(pagePayload.toJSONString());
+            }
+
+            appendAll(mergedAssets, pagePayload.getJSONArray("assets"));
+            appendAll(mergedDescriptions, pagePayload.getJSONArray("descriptions"));
+            appendAll(mergedAssetProperties, pagePayload.getJSONArray("asset_properties"));
+
+            boolean moreItems = pagePayload.getBooleanValue("more_items");
+            String nextAssetId = pagePayload.getString("last_assetid");
+            page++;
+
+            if (!moreItems || nextAssetId == null || nextAssetId.isBlank() || nextAssetId.equals(lastAssetId)) {
+                mergedPayload.put("assets", mergedAssets);
+                mergedPayload.put("descriptions", mergedDescriptions);
+                mergedPayload.put("asset_properties", mergedAssetProperties);
+                mergedPayload.put("more_items", false);
+                return mergedPayload;
+            }
+
+            lastAssetId = nextAssetId;
+        }
+
+        if (mergedPayload != null) {
+            mergedPayload.put("assets", mergedAssets);
+            mergedPayload.put("descriptions", mergedDescriptions);
+            mergedPayload.put("asset_properties", mergedAssetProperties);
+            mergedPayload.put("more_items", true);
+            return mergedPayload;
+        }
+
+        return null;
+    }
+
+    private JSONObject requestInventoryPage(String url) {
         int maxRetries = 3;
         Exception lastException = null;
 
@@ -156,6 +215,16 @@ public class SteamApiClient {
         }
 
         return null;
+    }
+
+    private void appendAll(JSONArray target, JSONArray source) {
+        if (target == null || source == null || source.isEmpty()) {
+            return;
+        }
+
+        for (int index = 0; index < source.size(); index++) {
+            target.add(source.get(index));
+        }
     }
 
     public SteamMarketPageResult getCsgoItems(int start, int count) {
@@ -235,6 +304,84 @@ public class SteamApiClient {
             return null;
         } catch (Exception e) {
             log.warn("Steam market price overview request failed: marketHashName={}, message={}", marketHashName, e.getMessage());
+            return null;
+        }
+    }
+
+    public JSONObject getMarketPriceHistory(String marketHashName) {
+        if (marketHashName == null || marketHashName.isBlank()) {
+            return null;
+        }
+
+        String encodedName = URLEncoder.encode(marketHashName, StandardCharsets.UTF_8);
+        String url = "https://steamcommunity.com/market/pricehistory/?appid=730&currency=23&country=CN&l=english&market_hash_name="
+                + encodedName;
+        log.info("Request Steam market price history: marketHashName={}", marketHashName);
+
+        Request.Builder requestBuilder = new Request.Builder()
+                .url(url)
+                .get()
+                .header("User-Agent", defaultUserAgent())
+                .header("Accept", "application/json, text/plain, */*")
+                .header("Accept-Language", "zh-CN,zh;q=0.9,en;q=0.8")
+                .header("Referer", "https://steamcommunity.com/market/");
+
+        if (steamLoginSecure != null && !steamLoginSecure.isBlank()) {
+            requestBuilder.header("Cookie", "steamLoginSecure=" + steamLoginSecure);
+        }
+
+        try (Response response = httpClient.newCall(requestBuilder.build()).execute()) {
+            int statusCode = response.code();
+            ResponseBody body = response.body();
+            String responseBody = body != null ? body.string() : "";
+            log.info("Steam market price history response: status={}, preview={}", statusCode, preview(responseBody, 300));
+
+            if (statusCode == 200) {
+                JSONObject payload = JSON.parseObject(responseBody);
+                if (payload != null && payload.getBooleanValue("success") && payload.getJSONArray("prices") != null) {
+                    return payload;
+                }
+            }
+
+            return getMarketPriceHistoryFromListingPage(marketHashName);
+        } catch (Exception e) {
+            log.warn("Steam market price history request failed: marketHashName={}, message={}", marketHashName, e.getMessage());
+            return getMarketPriceHistoryFromListingPage(marketHashName);
+        }
+    }
+
+    private JSONObject getMarketPriceHistoryFromListingPage(String marketHashName) {
+        String encodedName = URLEncoder.encode(marketHashName, StandardCharsets.UTF_8).replace("+", "%20");
+        String url = "https://steamcommunity.com/market/listings/730/" + encodedName + "?currency=23&country=CN&l=english";
+        log.info("Fallback request Steam market listing page for price history: marketHashName={}", marketHashName);
+
+        Request.Builder requestBuilder = new Request.Builder()
+                .url(url)
+                .get()
+                .header("User-Agent", defaultUserAgent())
+                .header("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
+                .header("Accept-Language", "zh-CN,zh;q=0.9,en;q=0.8")
+                .header("Referer", "https://steamcommunity.com/market/");
+
+        if (steamLoginSecure != null && !steamLoginSecure.isBlank()) {
+            requestBuilder.header("Cookie", "steamLoginSecure=" + steamLoginSecure);
+        }
+
+        try (Response response = httpClient.newCall(requestBuilder.build()).execute()) {
+            ResponseBody body = response.body();
+            String responseBody = body != null ? body.string() : "";
+            Matcher matcher = STEAM_LISTING_HISTORY_PATTERN.matcher(responseBody);
+            if (!matcher.find()) {
+                return null;
+            }
+
+            JSONObject payload = new JSONObject();
+            payload.put("success", true);
+            payload.put("prices", JSON.parseArray(matcher.group(1)));
+            return payload;
+        } catch (Exception e) {
+            log.warn("Steam market listing page price history fallback failed: marketHashName={}, message={}",
+                    marketHashName, e.getMessage());
             return null;
         }
     }

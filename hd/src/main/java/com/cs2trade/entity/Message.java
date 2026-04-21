@@ -59,6 +59,7 @@ public class Message implements Serializable {
      * 关联商品名称
      */
     private String itemName;
+    private String itemIconUrl;
     
     /**
      * 还价金额（仅还价留言使用）

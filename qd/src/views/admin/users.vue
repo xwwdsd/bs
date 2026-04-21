@@ -1,207 +1,165 @@
 <template>
-  <div class="admin-common-page">
-    <div class="page-header">
-      <h1>用户管理</h1>
-      <p>管理系统用户信息、权限和状态</p>
-    </div>
-
-    <el-card class="content-card">
-      <div class="card-header">
-        <div class="header-left">
-          <el-input
-            v-model="searchKeyword"
-            placeholder="搜索用户名/邮箱"
-            class="search-input"
-            clearable
-            @keyup.enter="handleSearch"
-          >
-            <template #prefix>
-              <el-icon><Search /></el-icon>
-            </template>
-          </el-input>
-        </div>
-        <div class="header-right">
-          <el-button @click="refreshData" :loading="loading">刷新</el-button>
-        </div>
+  <div class="admin-page">
+    <el-card shadow="never" class="panel">
+      <div class="toolbar">
+        <el-input v-model="query.keyword" placeholder="搜索用户名、邮箱、手机或 Steam ID" clearable @keyup.enter="loadData" />
+        <el-select v-model="query.role" placeholder="角色" clearable>
+          <el-option label="普通用户" value="user" />
+          <el-option label="管理员" value="admin" />
+        </el-select>
+        <el-select v-model="query.status" placeholder="状态" clearable>
+          <el-option label="禁用" :value="0" />
+          <el-option label="正常" :value="1" />
+          <el-option label="待验证" :value="2" />
+        </el-select>
+        <el-button type="primary" :icon="Search" @click="search">查询</el-button>
       </div>
 
-      <el-table :data="users" v-loading="loading" style="width: 100%">
-        <el-table-column prop="id" label="ID" width="80" />
-        <el-table-column prop="username" label="用户名" min-width="150" />
-        <el-table-column prop="email" label="邮箱" min-width="200" />
-        <el-table-column prop="role" label="角色" width="100">
+      <el-table :data="rows" v-loading="loading" row-key="id">
+        <el-table-column prop="id" label="编号" width="80" />
+        <el-table-column prop="username" label="用户名" min-width="140" />
+        <el-table-column prop="email" label="邮箱" min-width="180" />
+        <el-table-column prop="phone" label="手机" width="130" />
+        <el-table-column prop="steamId" label="Steam ID" min-width="150" />
+        <el-table-column prop="userLevel" label="角色" width="110">
           <template #default="{ row }">
-            <el-tag :type="row.role === 'admin' ? 'danger' : 'info'">
-              {{ row.role === 'admin' ? '管理员' : '普通用户' }}
-            </el-tag>
+            <el-tag :type="row.userLevel >= 2 ? 'danger' : 'info'">{{ row.userLevel >= 2 ? '管理员' : '普通用户' }}</el-tag>
           </template>
         </el-table-column>
         <el-table-column prop="status" label="状态" width="100">
           <template #default="{ row }">
-            <el-tag :type="row.status === 'active' ? 'success' : 'warning'">
-              {{ row.status === 'active' ? '正常' : '禁用' }}
-            </el-tag>
+            <el-tag :type="row.status === 1 ? 'success' : 'warning'">{{ statusText(row.status) }}</el-tag>
           </template>
         </el-table-column>
         <el-table-column prop="createdAt" label="注册时间" width="180" />
-        <el-table-column label="操作" width="200" fixed="right">
+        <el-table-column label="操作" width="240" fixed="right">
           <template #default="{ row }">
-            <el-button size="small" @click="handleEdit(row)">编辑</el-button>
-            <el-button size="small" type="danger" @click="handleDelete(row)">删除</el-button>
+            <el-button size="small" @click="openDetail(row)">详情</el-button>
+            <el-button size="small" :type="row.status === 1 ? 'warning' : 'success'" @click="toggleStatus(row)">
+              {{ row.status === 1 ? '禁用' : '启用' }}
+            </el-button>
+            <el-button size="small" type="danger" @click="removeUser(row)">删除</el-button>
           </template>
         </el-table-column>
       </el-table>
 
-      <div class="pagination-wrap">
-        <el-pagination
-          background
-          layout="prev, pager, next, sizes, total"
-          :current-page="page"
-          :page-size="pageSize"
-          :total="total"
-          @current-change="handlePageChange"
-          @size-change="handleSizeChange"
-        />
-      </div>
+      <el-pagination
+        class="pager"
+        background
+        layout="prev, pager, next, sizes, total"
+        :current-page="query.page"
+        :page-size="query.size"
+        :total="total"
+        @current-change="changePage"
+        @size-change="changeSize"
+      />
     </el-card>
+
+    <el-drawer v-model="drawerVisible" title="用户业务概览" size="520px">
+      <el-descriptions v-if="currentUser" :column="1" border>
+        <el-descriptions-item label="用户">{{ currentUser.username }}</el-descriptions-item>
+        <el-descriptions-item label="邮箱">{{ currentUser.email || '-' }}</el-descriptions-item>
+        <el-descriptions-item label="Steam ID">{{ currentUser.steamId || '-' }}</el-descriptions-item>
+        <el-descriptions-item label="库存数量">{{ overview.inventoryCount ?? 0 }}</el-descriptions-item>
+        <el-descriptions-item label="未读消息">{{ overview.unreadMessages ?? 0 }}</el-descriptions-item>
+        <el-descriptions-item label="钱包余额">{{ money(overview.wallet?.balance) }}</el-descriptions-item>
+        <el-descriptions-item label="冻结金额">{{ money(overview.wallet?.frozenAmount) }}</el-descriptions-item>
+      </el-descriptions>
+    </el-drawer>
   </div>
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
+import { onMounted, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Search } from '@element-plus/icons-vue'
-import { getUsers, updateUserStatus, deleteUser } from '@/api/admin'
+import { deleteUser, getUserOverview, getUsers, updateUserStatus } from '@/api/admin'
 
 const loading = ref(false)
-const searchKeyword = ref('')
-const users = ref([])
-const page = ref(1)
-const pageSize = ref(20)
+const rows = ref([])
 const total = ref(0)
+const drawerVisible = ref(false)
+const currentUser = ref(null)
+const overview = ref({})
+const query = reactive({ page: 1, size: 20, keyword: '', role: '', status: null })
 
-const fetchUsers = async () => {
+const statusText = (status) => ({ 0: '禁用', 1: '正常', 2: '待验证' }[status] || '未知')
+const money = (value) => `￥${Number(value || 0).toFixed(2)}`
+
+const loadData = async () => {
   loading.value = true
   try {
-    const res = await getUsers({ page: page.value, size: pageSize.value, keyword: searchKeyword.value })
-    users.value = res?.list || res || []
-    total.value = res?.total || users.value.length
-  } catch (error) {
-    ElMessage.error(error?.message || '获取用户列表失败')
+    const data = await getUsers(query)
+    rows.value = data?.list || []
+    total.value = data?.total || 0
   } finally {
     loading.value = false
   }
 }
 
-const handleSearch = () => {
-  page.value = 1
-  fetchUsers()
+const search = () => {
+  query.page = 1
+  loadData()
 }
 
-const refreshData = () => {
-  fetchUsers()
+const changePage = (page) => {
+  query.page = page
+  loadData()
 }
 
-const handlePageChange = (newPage) => {
-  page.value = newPage
-  fetchUsers()
+const changeSize = (size) => {
+  query.size = size
+  query.page = 1
+  loadData()
 }
 
-const handleSizeChange = (newSize) => {
-  pageSize.value = newSize
-  page.value = 1
-  fetchUsers()
+const openDetail = async (row) => {
+  currentUser.value = row
+  overview.value = await getUserOverview(row.id)
+  drawerVisible.value = true
 }
 
-const handleEdit = (row) => {
-  ElMessage.info(`编辑用户：${row.username}`)
-  // TODO: 打开编辑对话框
+const toggleStatus = async (row) => {
+  await updateUserStatus(row.id, row.status === 1 ? 0 : 1)
+  ElMessage.success('状态已更新')
+  loadData()
 }
 
-const handleDelete = async (row) => {
-  try {
-    await ElMessageBox.confirm(`确定要删除用户 "${row.username}" 吗？`, '提示', {
-      confirmButtonText: '确定',
-      cancelButtonText: '取消',
-      type: 'warning'
-    })
-    await deleteUser(row.id)
-    ElMessage.success('删除成功')
-    fetchUsers()
-  } catch (error) {
-    if (error !== 'cancel') {
-      ElMessage.error(error?.message || '删除失败')
-    }
-  }
+const removeUser = async (row) => {
+  await ElMessageBox.confirm(`确定删除用户“${row.username}”吗？`, '删除确认', { type: 'warning' })
+  await deleteUser(row.id)
+  ElMessage.success('删除成功')
+  loadData()
 }
 
-const handleToggleStatus = async (row) => {
-  try {
-    const newStatus = row.status === 'active' ? 0 : 1
-    await updateUserStatus(row.id, newStatus)
-    ElMessage.success('状态更新成功')
-    fetchUsers()
-  } catch (error) {
-    ElMessage.error(error?.message || '状态更新失败')
-  }
-}
-
-onMounted(() => {
-  fetchUsers()
-})
+onMounted(loadData)
 </script>
 
 <style scoped>
-.admin-common-page {
-  padding: 24px;
-}
-
-.page-header {
-  margin-bottom: 24px;
-}
-
-.page-header h1 {
-  margin: 0 0 8px;
-  font-size: 28px;
-  color: #1f2937;
-}
-
-.page-header p {
-  margin: 0;
-  color: #6b7280;
-  font-size: 14px;
-}
-
-.content-card {
-  border: 1px solid #e5e7eb;
-  border-radius: 16px;
-  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.04);
-}
-
-.card-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 20px;
+.admin-page {
+  display: grid;
   gap: 16px;
 }
 
-.header-left {
-  flex: 1;
+.panel {
+  border-radius: 8px;
 }
 
-.search-input {
-  width: 300px;
-}
-
-.header-right {
-  display: flex;
+.toolbar {
+  display: grid;
+  grid-template-columns: minmax(220px, 1fr) 140px 140px auto;
   gap: 12px;
+  margin-bottom: 16px;
 }
 
-.pagination-wrap {
-  display: flex;
+.pager {
+  margin-top: 16px;
   justify-content: flex-end;
-  margin-top: 20px;
+}
+
+@media (max-width: 900px) {
+  .toolbar {
+    grid-template-columns: 1fr;
+  }
 }
 </style>

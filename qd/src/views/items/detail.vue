@@ -17,25 +17,7 @@
             <div class="hero-main">
               <div class="media-panel">
                 <div class="media-stage">
-                  <div class="media-badge-row">
-                    <span class="media-badge" :class="getDisplayBadgeClass(displayModel.primaryBadge)">
-                      {{ displayModel.primaryBadge.text }}
-                    </span>
-                    <span
-                      v-if="displayModel.secondaryBadge"
-                      class="media-badge media-badge-secondary"
-                      :class="getDisplaySecondaryBadgeClass(displayModel.secondaryBadge)"
-                    >
-                      {{ displayModel.secondaryBadge.text }}
-                    </span>
-                  </div>
                   <img :src="displayIcon" :alt="displayName" />
-                  <div v-if="displayModel.showWearModule" class="media-wear-panel">
-                    <div class="media-wear-text">{{ TEXT.wear }}: {{ getWearDisplay(displaySource) }}</div>
-                    <div class="media-wear-scale">
-                      <span class="media-wear-marker" :style="{ left: `${getWearPercent(displaySource)}%` }"></span>
-                    </div>
-                  </div>
                 </div>
               </div>
 
@@ -74,6 +56,7 @@
                     <div class="price-group">
                       <span>{{ TEXT.referencePrice }}</span>
                       <strong>{{ TEXT.currency }} {{ formatPrice(displayReferencePrice) }}</strong>
+                      <em v-if="displayReferenceSourceText" class="reference-price-source">{{ displayReferenceSourceText }}</em>
                     </div>
                   </div>
 
@@ -131,8 +114,18 @@
               >
                 {{ TEXT.buyTab }}
               </button>
+              <button
+                v-for="entry in marketPanelTabs"
+                :key="entry.value"
+                type="button"
+                class="order-book-tab"
+                :class="{ active: activeOrderTab === entry.value }"
+                @click="selectMarketPanel(entry.value)"
+              >
+                {{ entry.label }}
+              </button>
             </div>
-            <span class="order-book-count">
+            <span v-if="!isInsightTabActive" class="order-book-count">
               {{ activeOrderTab === 'sell' ? relatedOrders.length : buyOrders.length }}
               {{ activeOrderTab === 'sell' ? TEXT.saleRecordSuffix : TEXT.buyRecordSuffix }}
             </span>
@@ -165,35 +158,54 @@
             @buy="handleBuy"
           />
 
-          <section v-else class="orders-panel buy-orders-section">
-            <div class="buy-orders-table" v-loading="buyOrdersLoading">
-              <el-empty v-if="!buyOrders.length && !buyOrdersLoading" :description="TEXT.noActiveSale" />
-              <div v-for="order in buyOrders" v-else :key="order.id" class="buy-order-row">
-                <div class="buy-order-item">
-                  <img :src="order.item?.iconUrl || displayIcon" :alt="getItemName(order)" />
-                  <div>
-                    <strong>{{ getItemName(order) }}</strong>
-                    <span>{{ TEXT.remainingQuantity }} {{ getRemainingQuantity(order) }}</span>
+          <section v-else-if="activeOrderTab === 'buy'" class="orders-panel buy-orders-section">
+            <div class="buy-orders-layout">
+              <div class="buy-orders-table" v-loading="buyOrdersLoading">
+                <el-empty v-if="!buyOrders.length && !buyOrdersLoading" :description="TEXT.noActiveSale" />
+                <div v-for="order in buyOrders" v-else :key="order.id" class="buy-order-row">
+                  <div class="buy-order-item">
+                    <img :src="getBuyOrderItemIcon(order)" :alt="getItemName(order)" />
+                    <div>
+                      <strong>{{ getItemName(order) }}</strong>
+                      <span>{{ TEXT.remainingQuantity }} {{ getRemainingQuantity(order) }}</span>
+                    </div>
                   </div>
+                  <div class="buy-order-buyer">
+                    <span>{{ TEXT.buyer }}</span>
+                    <strong>{{ order.user?.username || TEXT.unknownSeller }}</strong>
+                  </div>
+                  <div class="buy-order-price">
+                    <span>{{ TEXT.price }}</span>
+                    <strong>{{ TEXT.currency }} {{ formatPrice(order.price) }}</strong>
+                  </div>
+                  <el-button
+                    type="primary"
+                    plain
+                    :disabled="order.userId === currentUserId"
+                    @click="openRespondBuyDialog(order)"
+                  >
+                    {{ TEXT.sellToBuyer }}
+                  </el-button>
                 </div>
-                <div class="buy-order-buyer">
-                  <span>{{ TEXT.buyer }}</span>
-                  <strong>{{ order.user?.username || TEXT.unknownSeller }}</strong>
-                </div>
-                <div class="buy-order-price">
-                  <span>{{ TEXT.price }}</span>
-                  <strong>{{ TEXT.currency }} {{ formatPrice(order.price) }}</strong>
-                </div>
-                <el-button
-                  type="primary"
-                  plain
-                  :disabled="order.userId === currentUserId"
-                  @click="openRespondBuyDialog(order)"
-                >
-                  {{ TEXT.sellToBuyer }}
-                </el-button>
               </div>
             </div>
+          </section>
+
+          <section v-else-if="activeOrderTab === 'recommend'" class="orders-panel recommend-tab-section">
+            <ItemRecommendationPanel
+              class="detail-recommend-panel"
+              :current-item-id="currentDisplayItemId"
+            />
+          </section>
+
+          <section v-else-if="isMarketPanelActive" class="orders-panel market-tab-section">
+            <ItemMarketPanel
+              class="detail-market-panel"
+              :item-id="currentDisplayItemId"
+              :active-view="currentMarketPanel"
+              :fallback-price="currentSellPrice"
+              :highest-buy-price="highestBuyPrice"
+            />
           </section>
         </section>
       </template>
@@ -284,8 +296,11 @@ import { useUserStore } from '@/stores/user'
 import LoginModal from '@/components/LoginModal.vue'
 import SiteHeader from '@/components/SiteHeader.vue'
 import ItemBargainDialog from '@/views/items/components/ItemBargainDialog.vue'
+import ItemMarketPanel from '@/views/items/components/ItemMarketPanel.vue'
+import ItemRecommendationPanel from '@/views/items/components/ItemRecommendationPanel.vue'
 import ItemSellOrdersSection from '@/views/items/components/ItemSellOrdersSection.vue'
 import request from '@/utils/request'
+import { resolveItemImageUrl } from '@/utils/itemImage'
 import {
   resolveItemQuality,
   resolveItemCategory,
@@ -324,6 +339,7 @@ const itemDetail = ref(null)
 const sellOrders = ref([])
 const buyOrders = ref([])
 const activeOrderTab = ref('sell')
+const activeMarketPanel = ref('trend')
 const relatedItems = ref([])
 const showBargainDialog = ref(false)
 const bargainSubmitting = ref(false)
@@ -345,6 +361,26 @@ const respondInventory = ref([])
 const respondForm = ref({
   inventoryId: null
 })
+const marketPanelTabs = [
+  { value: 'trend', label: '价格走势' },
+  { value: 'trades', label: '成交记录' },
+  { value: 'pricing', label: '定价建议' },
+  { value: 'recommend', label: '推荐' }
+]
+
+const marketPanelValues = ['trend', 'trades', 'pricing']
+const insightTabValues = marketPanelTabs.map((tab) => tab.value)
+const isInsightTabActive = computed(() => insightTabValues.includes(activeOrderTab.value))
+const isMarketPanelActive = computed(() => marketPanelValues.includes(activeOrderTab.value))
+const currentMarketPanel = computed(() => (
+  marketPanelValues.includes(activeOrderTab.value) ? activeOrderTab.value : activeMarketPanel.value
+))
+const selectMarketPanel = (panel) => {
+  activeOrderTab.value = panel
+  if (marketPanelValues.includes(panel)) {
+    activeMarketPanel.value = panel
+  }
+}
 
 const currentUserId = computed(() => userStore.userInfo?.userId || userStore.userInfo?.id || null)
 const displaySource = computed(() => selectedOrder.value || (itemDetail.value ? { item: itemDetail.value } : null))
@@ -356,6 +392,22 @@ const displayTypeText = computed(() => displayModel.value.typeText)
 const displayQualityText = computed(() => displayModel.value.qualityText)
 const displayTradeNotice = computed(() => getTradeNotice(displaySource.value))
 const displayReferencePrice = computed(() => getReferencePrice(displaySource.value))
+const displayReferenceSourceText = computed(() => getReferencePriceSourceText(displaySource.value))
+const currentSellPrice = computed(() => {
+  const selectedPrice = Number(selectedOrder.value?.price)
+  if (Number.isFinite(selectedPrice) && selectedPrice > 0) return selectedPrice
+
+  const cheapestPrice = Number(getCheapestOrder(relatedOrders.value)?.price)
+  if (Number.isFinite(cheapestPrice) && cheapestPrice > 0) return cheapestPrice
+
+  return displayReferencePrice.value
+})
+const highestBuyPrice = computed(() => {
+  const prices = buyOrders.value
+    .map((order) => Number(order?.price))
+    .filter((price) => Number.isFinite(price) && price > 0)
+  return prices.length ? Math.max(...prices) : 0
+})
 const bargainTargetName = computed(() => getItemName(bargainTargetOrder.value))
 const bargainTargetPrice = computed(() => Number(bargainTargetOrder.value?.price || 0))
 const bargainTargetPriceText = computed(() => formatPrice(bargainTargetPrice.value))
@@ -364,15 +416,6 @@ const bargainTargetMaxPrice = computed(() => {
   if (!Number.isFinite(price) || price <= 0.01) return undefined
   return Number((price - 0.01).toFixed(2))
 })
-
-const getDisplayBadgeClass = (badge) => {
-  if (!badge) return 'media-badge-unknown'
-  if (badge.kind === 'quality') return `media-badge-quality-${badge.code}`
-  if (badge.kind === 'category') return `media-badge-category-${badge.code || 'other'}`
-  return `media-badge-${badge.code || 'unknown'}`
-}
-
-const getDisplaySecondaryBadgeClass = (badge) => (badge ? `media-badge-type-${badge.code}` : '')
 
 const buildSource = (source) => {
   if (!source) {
@@ -513,13 +556,14 @@ const getItemName = (source) => {
 
 const getItemIcon = (source) => {
   const current = buildSource(source)
-  return (
-    current.inventory?.iconUrlLarge ||
-    current.inventory?.iconUrl ||
-    current.item?.iconUrl ||
-    '/default-item.png'
+  return resolveItemImageUrl(
+    current.inventory?.iconUrlLarge,
+    current.inventory?.iconUrl,
+    current.item?.iconUrl
   )
 }
+
+const getBuyOrderItemIcon = (order) => resolveItemImageUrl(order?.item?.iconUrl, displayIcon.value)
 
 const getItemCategory = (source) => resolveItemCategory(buildSource(source))
 const getItemSubCategory = (source) => resolveItemSubCategory(buildSource(source))
@@ -528,21 +572,35 @@ const getItemType = (source) => getSourceDisplayModel(source).resolvedType || 'N
 const getItemExterior = (source) => getSourceDisplayModel(source).filterExterior
 const getItemQuality = (source) => getSourceDisplayModel(source).resolvedQuality
 
-const getReferencePrice = (source) => {
+const getReferencePriceInfo = (source) => {
   const current = buildSource(source)
-  const candidates = [
-    current.item?.steamReferencePrice,
-    current.inventory?.item?.steamReferencePrice,
-    current.item?.buffPrice,
-    current.inventory?.item?.buffPrice,
-    current.item?.marketPrice,
-    current.item?.lowestPrice,
-    current.inventory?.marketPrice
-  ]
-    .map((value) => Number(value))
-    .filter((value) => Number.isFinite(value) && value > 0)
 
-  return candidates[0] || 0
+  const candidate = [
+    { price: current.item?.steamReferencePrice, source: 'steam' },
+    { price: current.inventory?.item?.steamReferencePrice, source: 'steam' },
+    { price: current.item?.buffPrice, source: 'buff' },
+    { price: current.inventory?.item?.buffPrice, source: 'buff' },
+    { price: current.item?.marketPrice, source: 'local' },
+    { price: current.item?.lowestPrice, source: 'local' },
+    { price: current.inventory?.marketPrice, source: 'local' }
+  ]
+    .map((entry) => ({
+      price: Number(entry.price),
+      source: entry.source
+    }))
+    .find((entry) => Number.isFinite(entry.price) && entry.price > 0)
+
+  return candidate || { price: 0, source: '' }
+}
+
+const getReferencePrice = (source) => getReferencePriceInfo(source).price
+const getReferencePriceSource = (source) => getReferencePriceInfo(source).source
+const getReferencePriceSourceText = (source) => {
+  const referenceSource = getReferencePriceSource(source)
+  if (referenceSource === 'steam') return 'Steam参考价'
+  if (referenceSource === 'buff') return 'Buff回退'
+  if (referenceSource === 'local') return '站内参考'
+  return ''
 }
 
 const getCategoryText = (category, subCategory = '') => {
@@ -778,15 +836,15 @@ const buildPriceStripEntries = (items, source) => {
       .map((item) => getReferencePrice(item))
       .filter((price) => Number.isFinite(price) && price > 0)
 
-    const fallbackPrice = currentExterior === exterior ? getReferencePrice(source) : null
     const target = pickVariantItem(comparableItems, source, { type: currentType, exterior })
     const isActive = currentExterior === exterior
+    const activePrice = currentSellPrice.value || getReferencePrice(source)
 
     entries.push({
       id: `exterior-${exterior}`,
       kind: 'exterior',
       label: getExteriorText(exterior),
-      price: prices.length ? Math.min(...prices) : fallbackPrice,
+      price: isActive ? activePrice : (prices.length ? Math.min(...prices) : null),
       active: isActive,
       clickable: !!getSourceItemId(target),
       mode: 'price',
@@ -1255,9 +1313,10 @@ watch(
 }
 
 .detail-shell {
-  width: min(71%, 1080px);
+  width: clamp(1080px, 72vw, 1408px);
+  max-width: calc(100% - 48px);
   margin: 0 auto;
-  padding: 88px 0 36px;
+  padding: 88px 0 40px;
 }
 
 .detail-breadcrumb {
@@ -1286,23 +1345,27 @@ watch(
 }
 
 .detail-hero {
-  border-radius: 20px;
+  border-radius: 0;
   overflow: hidden;
-  box-shadow: 0 26px 60px rgba(15, 23, 42, 0.12);
+  box-shadow: 0 24px 58px rgba(15, 23, 42, 0.16);
 }
 
 .hero-panel {
+  position: relative;
   background:
-    radial-gradient(circle at 18% 45%, rgba(59, 130, 246, 0.16), transparent 26%),
-    linear-gradient(180deg, #252a33 0%, #21262e 100%);
+    radial-gradient(circle at 15% 48%, rgba(59, 130, 246, 0.16), transparent 22%),
+    linear-gradient(90deg, rgba(30, 41, 59, 0.86) 0%, rgba(27, 34, 43, 0.96) 32%, rgba(27, 34, 43, 0.98) 100%);
+  border: 0;
   color: #f8fafc;
 }
 
 .hero-main {
   display: grid;
-  grid-template-columns: minmax(240px, 320px) minmax(0, 1fr);
-  gap: 18px;
-  padding: 18px 18px 14px;
+  grid-template-columns: minmax(240px, 330px) minmax(0, 1fr);
+  align-items: center;
+  gap: 44px;
+  min-height: 272px;
+  padding: 34px 48px 32px;
 }
 
 .media-panel {
@@ -1312,29 +1375,27 @@ watch(
 .media-stage {
   position: relative;
   width: 100%;
-  min-height: 208px;
+  min-height: 218px;
   display: flex;
   align-items: center;
   justify-content: center;
-  border-radius: 18px;
-  background:
-    radial-gradient(circle at center, rgba(59, 130, 246, 0.18), transparent 50%),
-    linear-gradient(180deg, rgba(22, 28, 38, 0.98), rgba(31, 41, 55, 0.98));
-  overflow: hidden;
+  border-radius: 0;
+  background: transparent;
+  overflow: visible;
 }
 
 .media-stage img {
   max-width: 100%;
-  max-height: 162px;
+  max-height: 138px;
   object-fit: contain;
   filter: drop-shadow(0 16px 24px rgba(0, 0, 0, 0.35));
 }
 
 .media-badge-row {
   position: absolute;
-  left: 14px;
-  right: 14px;
-  top: 14px;
+  left: 0;
+  right: 0;
+  top: 0;
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
@@ -1344,9 +1405,9 @@ watch(
 .media-badge {
   display: inline-flex;
   align-items: center;
-  min-height: 30px;
-  padding: 0 12px;
-  border-radius: 999px;
+  min-height: 28px;
+  padding: 0 14px;
+  border-radius: 0;
   background: rgba(100, 116, 139, 0.9);
   color: #ffffff;
   font-size: 13px;
@@ -1354,7 +1415,7 @@ watch(
 }
 
 .media-badge-secondary {
-  background: rgba(15, 23, 42, 0.95);
+  background: rgba(15, 23, 42, 0.68);
   color: #ff8f1f;
 }
 
@@ -1466,11 +1527,12 @@ watch(
   position: absolute;
   left: 0;
   right: 0;
-  bottom: 0;
+  bottom: 2px;
 }
 
 .media-wear-text {
-  padding: 3px 12px 4px;
+  display: inline-flex;
+  padding: 3px 0 4px;
   background: rgba(15, 23, 42, 0.82);
   color: rgba(226, 232, 240, 0.86);
   font-size: 13px;
@@ -1497,7 +1559,9 @@ watch(
 .info-panel {
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  justify-content: center;
+  gap: 15px;
+  min-width: 0;
 }
 
 .info-topbar {
@@ -1519,7 +1583,7 @@ watch(
 .info-panel h1 {
   margin: 0;
   color: #ffffff;
-  font-size: clamp(26px, 2.4vw, 40px);
+  font-size: clamp(30px, 2.35vw, 40px);
   line-height: 1.12;
 }
 
@@ -1527,6 +1591,9 @@ watch(
   display: flex;
   flex-wrap: wrap;
   gap: 12px 22px;
+  width: min(100%, 520px);
+  padding-bottom: 20px;
+  border-bottom: 1px solid rgba(245, 158, 11, 0.42);
   color: rgba(226, 232, 240, 0.88);
   font-size: 14px;
 }
@@ -1535,6 +1602,7 @@ watch(
   display: flex;
   align-items: flex-start;
   gap: 12px;
+  max-width: 840px;
   padding: 10px 12px;
   border-left: 3px solid rgba(245, 158, 11, 0.92);
   background: rgba(245, 158, 11, 0.08);
@@ -1564,8 +1632,8 @@ watch(
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 14px;
-  margin-top: 2px;
+  gap: 32px;
+  margin-top: 10px;
 }
 
 .price-summary {
@@ -1575,24 +1643,36 @@ watch(
 }
 
 .price-group {
-  min-width: 146px;
-  padding: 10px 12px;
-  border: 1px solid rgba(148, 163, 184, 0.22);
-  border-radius: 14px;
-  background: rgba(15, 23, 42, 0.18);
+  display: flex;
+  align-items: baseline;
+  gap: 14px;
+  min-width: 0;
 }
 
 .price-group span {
-  display: block;
-  margin-bottom: 5px;
+  display: inline-flex;
+  margin-bottom: 0;
   color: rgba(203, 213, 225, 0.78);
-  font-size: 12px;
+  font-size: 14px;
 }
 
 .price-group strong {
-  color: #f8fafc;
-  font-size: 22px;
+  color: #f59e0b;
+  font-size: 28px;
   line-height: 1;
+}
+
+.reference-price-source {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 9px;
+  border-radius: 999px;
+  background: rgba(245, 158, 11, 0.14);
+  color: #f8d68a;
+  font-size: 12px;
+  font-style: normal;
+  font-weight: 700;
+  line-height: 1.4;
 }
 
 .price-group.highlight {
@@ -1608,21 +1688,21 @@ watch(
   display: flex;
   flex-wrap: wrap;
   justify-content: flex-end;
-  gap: 10px;
+  gap: 16px;
 }
 
 .hero-actions :deep(.el-button) {
-  min-width: 116px;
-  height: 36px;
+  min-width: 126px;
+  height: 42px;
   margin-left: 0;
-  border-radius: 10px;
+  border-radius: 2px;
   font-weight: 700;
 }
 
 .order-book-section {
   margin-top: 28px;
   overflow: hidden;
-  border-radius: 20px;
+  border-radius: 10px;
   background: #ffffff;
   box-shadow: 0 18px 42px rgba(15, 23, 42, 0.08);
 }
@@ -1631,25 +1711,29 @@ watch(
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 0 28px;
-  background: #111827;
+  padding: 0 34px;
+  background: #101521;
   color: #fff;
 }
 
 .order-book-tabs {
   display: flex;
   align-items: center;
-  gap: 24px;
-  min-height: 58px;
+  gap: 34px;
+  min-height: 72px;
 }
 
 .order-book-tab {
   position: relative;
+  display: inline-flex;
+  align-items: center;
+  min-height: 72px;
+  padding: 0;
   border: 0;
   background: transparent;
   color: rgba(226, 232, 240, 0.74);
   cursor: pointer;
-  font-size: 18px;
+  font-size: 17px;
   font-weight: 800;
 }
 
@@ -1662,10 +1746,24 @@ watch(
   position: absolute;
   left: 0;
   right: 0;
-  bottom: -18px;
+  bottom: 0;
   height: 3px;
   border-radius: 999px;
   background: #60a5fa;
+}
+
+.order-book-tab.active::before {
+  content: '';
+  position: absolute;
+  left: 50%;
+  bottom: 0;
+  width: 0;
+  height: 0;
+  border-right: 6px solid transparent;
+  border-bottom: 0;
+  border-left: 6px solid transparent;
+  border-top: 6px solid #60a5fa;
+  transform: translate(-50%, 100%);
 }
 
 .order-book-count {
@@ -1690,9 +1788,29 @@ watch(
   background: #ffffff;
 }
 
+.buy-orders-layout {
+  display: block;
+}
+
 .buy-orders-table {
   min-height: 96px;
   padding: 18px 24px 22px;
+}
+
+.market-tab-section {
+  background: #ffffff;
+}
+
+.recommend-tab-section {
+  background: #ffffff;
+}
+
+.detail-market-panel {
+  min-width: 0;
+}
+
+.detail-recommend-panel {
+  min-width: 0;
 }
 
 .buy-order-row {
@@ -1771,7 +1889,7 @@ watch(
 .favorite-action {
   border-color: rgba(245, 158, 11, 0.34);
   color: #f8fafc;
-  background: rgba(245, 158, 11, 0.08);
+  background: rgba(15, 23, 42, 0.18);
 }
 
 .favorite-action.active {
@@ -1785,32 +1903,34 @@ watch(
 }
 
 .favorite-corner {
-  min-width: 112px;
-  height: 36px;
+  min-width: 104px;
+  height: 34px;
   margin-left: auto;
-  border-radius: 10px;
+  border-radius: 0;
   font-weight: 700;
 }
 
 .price-strip {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px;
-  padding: 10px 18px 14px;
-  border-top: 1px solid rgba(148, 163, 184, 0.14);
-  background: rgba(15, 23, 42, 0.16);
+  gap: 30px;
+  padding: 18px 48px 20px;
+  border-top: 1px solid rgba(148, 163, 184, 0.22);
+  background: rgba(15, 23, 42, 0.32);
 }
 
 .price-strip-item {
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   gap: 8px;
-  min-height: 38px;
-  padding: 0 12px;
-  border: 1px solid rgba(96, 165, 250, 0.24);
-  border-radius: 10px;
+  min-width: 150px;
+  min-height: 42px;
+  padding: 0 20px;
+  border: 1px solid rgba(148, 163, 184, 0.46);
+  border-radius: 0;
   color: #cbd5e1;
-  background: rgba(255, 255, 255, 0.04);
+  background: rgba(15, 23, 42, 0.1);
 }
 
 .price-strip-item.clickable {
@@ -1828,17 +1948,18 @@ watch(
 }
 
 .price-strip-item span {
-  font-size: 13px;
+  font-size: 14px;
 }
 
 .price-strip-item strong {
   color: #e2e8f0;
-  font-size: 13px;
+  font-size: 14px;
+  font-weight: 800;
 }
 
 .price-strip-item.active {
-  border-color: rgba(96, 165, 250, 0.92);
-  background: rgba(96, 165, 250, 0.22);
+  border-color: rgba(96, 165, 250, 0.86);
+  background: rgba(96, 165, 250, 0.28);
   color: #ffffff;
 }
 
@@ -1846,13 +1967,14 @@ watch(
   border-color: rgba(148, 163, 184, 0.34);
 }
 
-@media (max-width: 1280px) {
+@media (max-width: 1024px) {
   .detail-shell {
-    width: min(80%, 1020px);
+    width: min(calc(100% - 40px), 1020px);
   }
 
   .hero-main {
     grid-template-columns: 1fr;
+    gap: 24px;
   }
 
   .trade-row {
@@ -1891,8 +2013,19 @@ watch(
     max-height: 156px;
   }
 
+  .media-badge-row {
+    left: 0;
+    right: 0;
+  }
+
   .price-strip {
+    gap: 10px;
     padding: 12px 18px 16px;
+  }
+
+  .price-strip-item {
+    min-width: 0;
+    flex: 1 1 140px;
   }
 
   .info-panel h1 {
@@ -1928,15 +2061,24 @@ watch(
   }
 
   .order-book-tabs {
+    width: 100%;
     min-height: 42px;
+    gap: 22px;
+    overflow-x: auto;
   }
 
   .order-book-tab {
+    min-height: 44px;
     font-size: 17px;
+    white-space: nowrap;
   }
 
   .order-book-tab.active::after {
-    bottom: -10px;
+    bottom: 0;
+  }
+
+  .order-book-tab.active::before {
+    display: none;
   }
 
   .buy-order-row {

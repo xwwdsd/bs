@@ -9,12 +9,14 @@ import com.cs2trade.service.UserService;
 import com.cs2trade.utils.JwtUtils;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.commons.lang3.StringUtils;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
+import java.util.regex.Pattern;
 
 /**
  * 用户服务实现类
@@ -28,6 +30,11 @@ import java.time.LocalDateTime;
 @Service
 @RequiredArgsConstructor
 public class UserServiceImpl implements UserService {
+
+    private static final Pattern EMAIL_PATTERN = Pattern.compile(
+            "^[A-Z0-9._%+-]+@[A-Z0-9.-]+\\.[A-Z]{2,}$",
+            Pattern.CASE_INSENSITIVE
+    );
 
     /**
      * 用户数据访问层
@@ -61,15 +68,19 @@ public class UserServiceImpl implements UserService {
     @Override
     @Transactional(rollbackFor = Exception.class)
     public User register(RegisterRequest request) {
-        log.info("用户注册请求: email={}", request.getEmail());
+        String email = normalizeEmail(request.getEmail());
+        log.info("用户注册请求: email={}", email);
 
         // 1. 校验两次密码是否一致
         if (!request.getPassword().equals(request.getConfirmPassword())) {
             throw new RuntimeException("两次输入的密码不一致");
         }
 
+        // 2. 校验邮箱格式（仅在填写时校验）
+        validateEmailFormat(email);
+
         // 2. 检查邮箱是否已注册
-        if (isEmailExists(request.getEmail())) {
+        if (isEmailExists(email)) {
             throw new RuntimeException("该邮箱已被注册");
         }
 
@@ -81,7 +92,7 @@ public class UserServiceImpl implements UserService {
         // 4. 创建用户实体
         User user = new User();
         user.setUsername(request.getUsername());
-        user.setEmail(request.getEmail());
+        user.setEmail(email);
         // 使用BCrypt对密码进行加密
         user.setPassword(passwordEncoder.encode(request.getPassword()));
         // 设置默认头像（使用系统默认头像）
@@ -203,7 +214,11 @@ public class UserServiceImpl implements UserService {
      */
     @Override
     public User getUserByEmail(String email) {
-        return userMapper.selectByEmail(email);
+        String normalizedEmail = normalizeEmail(email);
+        if (normalizedEmail == null) {
+            return null;
+        }
+        return userMapper.selectByEmail(normalizedEmail);
     }
 
     /**
@@ -214,7 +229,11 @@ public class UserServiceImpl implements UserService {
      */
     @Override
     public boolean isEmailExists(String email) {
-        return userMapper.countByEmail(email) > 0;
+        String normalizedEmail = normalizeEmail(email);
+        if (normalizedEmail == null) {
+            return false;
+        }
+        return userMapper.countByEmail(normalizedEmail) > 0;
     }
 
     /**
@@ -230,7 +249,12 @@ public class UserServiceImpl implements UserService {
 
     @Override
     @Transactional(rollbackFor = Exception.class)
-    public User updateProfile(Long userId, String nickname, String avatar) {
+    public User updateProfile(Long userId, String nickname, String avatar, String email) {
+        User currentUser = userMapper.selectById(userId);
+        if (currentUser == null) {
+            throw new RuntimeException("用户不存在");
+        }
+
         User user = new User();
         user.setId(userId);
         if (nickname != null && !nickname.isEmpty()) {
@@ -238,6 +262,14 @@ public class UserServiceImpl implements UserService {
         }
         if (avatar != null && !avatar.isEmpty()) {
             user.setAvatar(avatar);
+        }
+        if (StringUtils.isNotBlank(email)) {
+            String normalizedEmail = normalizeEmail(email);
+            validateEmailFormat(normalizedEmail);
+            if (!normalizedEmail.equals(currentUser.getEmail()) && isEmailExists(normalizedEmail)) {
+                throw new RuntimeException("该邮箱已被使用");
+            }
+            user.setEmail(normalizedEmail);
         }
         
         userMapper.updateById(user);
@@ -304,5 +336,15 @@ public class UserServiceImpl implements UserService {
     @Override
     public boolean isPhoneExists(String phone) {
         return userMapper.countByPhone(phone) > 0;
+    }
+
+    private String normalizeEmail(String email) {
+        return StringUtils.trimToNull(email);
+    }
+
+    private void validateEmailFormat(String email) {
+        if (email != null && !EMAIL_PATTERN.matcher(email).matches()) {
+            throw new RuntimeException("邮箱格式不正确");
+        }
     }
 }

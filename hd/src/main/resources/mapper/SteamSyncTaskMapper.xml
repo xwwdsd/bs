@@ -91,4 +91,25 @@
         LIMIT 1
     </select>
 
+    <sql id="Admin_Filter">
+        <where>
+            <if test="taskType != null and taskType != ''">AND task_type = #{taskType}</if>
+            <if test="status != null">AND status = #{status}</if>
+        </where>
+    </sql>
+
+    <select id="selectAll" resultMap="BaseResultMap">
+        SELECT *
+        FROM steam_sync_task
+        <include refid="Admin_Filter"/>
+        ORDER BY id DESC
+        LIMIT #{offset}, #{size}
+    </select>
+
+    <select id="countAll" resultType="long">
+        SELECT COUNT(*)
+        FROM steam_sync_task
+        <include refid="Admin_Filter"/>
+    </select>
+
 </mapper>

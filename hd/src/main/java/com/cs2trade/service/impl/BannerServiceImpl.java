@@ -60,4 +60,14 @@ public class BannerServiceImpl implements BannerService {
         }
         return false;
     }
+
+    @Override
+    public boolean updateBannerSort(Long id, Integer sortOrder) {
+        Banner banner = bannerMapper.selectById(id);
+        if (banner != null) {
+            banner.setSortOrder(sortOrder);
+            return bannerMapper.update(banner) > 0;
+        }
+        return false;
+    }
 }

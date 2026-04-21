@@ -24,6 +24,9 @@ public class UserInventoryTableInitializer {
         addColumnIfMissing("rarity", "ALTER TABLE user_inventory ADD COLUMN rarity VARCHAR(64) DEFAULT NULL COMMENT '前端展示用稀有度' AFTER marketable_reason");
         addColumnIfMissing("type", "ALTER TABLE user_inventory ADD COLUMN type VARCHAR(64) DEFAULT NULL COMMENT '前端展示用类型' AFTER rarity");
 
+        ensureVarcharLength("icon_url", 1024, "ALTER TABLE user_inventory MODIFY COLUMN icon_url VARCHAR(1024) DEFAULT NULL COMMENT '鐗╁搧鍥炬爣URL'");
+        ensureVarcharLength("icon_url_large", 1024, "ALTER TABLE user_inventory MODIFY COLUMN icon_url_large VARCHAR(1024) DEFAULT NULL COMMENT '鐗╁搧澶у浘URL'");
+
         log.info("user_inventory table columns are ready");
     }
 
@@ -43,6 +46,24 @@ public class UserInventoryTableInitializer {
         if (count == null || count == 0) {
             jdbcTemplate.execute(alterSql);
             log.info("Added column {} to user_inventory", columnName);
+        }
+    }
+    private void ensureVarcharLength(String columnName, int minLength, String alterSql) {
+        Integer currentLength = jdbcTemplate.queryForObject(
+                """
+                        SELECT CHARACTER_MAXIMUM_LENGTH
+                        FROM information_schema.COLUMNS
+                        WHERE TABLE_SCHEMA = DATABASE()
+                          AND TABLE_NAME = 'user_inventory'
+                          AND COLUMN_NAME = ?
+                        """,
+                Integer.class,
+                columnName
+        );
+
+        if (currentLength != null && currentLength < minLength) {
+            jdbcTemplate.execute(alterSql);
+            log.info("Expanded user_inventory.{} length from {} to {}", columnName, currentLength, minLength);
         }
     }
 }

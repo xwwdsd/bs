@@ -97,6 +97,8 @@ public class Item implements Serializable {
      */
     private String steamMarketUrl;
 
+    private String steamMarketHashName;
+
     /**
      * Buff参考价格
      */

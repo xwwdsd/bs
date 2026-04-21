@@ -18,6 +18,18 @@ public interface MessageMapper {
      */
     List<Message> getMessages(@Param("userId") Long userId, @Param("type") Integer type, 
                               @Param("offset") Integer offset, @Param("size") Integer size);
+
+    List<Message> selectAllForAdmin(@Param("userId") Long userId,
+                                    @Param("type") Integer type,
+                                    @Param("status") Integer status,
+                                    @Param("keyword") String keyword,
+                                    @Param("offset") Integer offset,
+                                    @Param("size") Integer size);
+
+    long countAllForAdmin(@Param("userId") Long userId,
+                          @Param("type") Integer type,
+                          @Param("status") Integer status,
+                          @Param("keyword") String keyword);
     
     /**
      * 统计消息数量

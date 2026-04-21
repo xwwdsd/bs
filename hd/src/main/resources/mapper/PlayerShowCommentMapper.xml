@@ -20,9 +20,39 @@
         ORDER BY c.created_at DESC
     </select>
 
+    <sql id="Admin_Filter">
+        <where>
+            <if test="showId != null">AND c.show_id = #{showId}</if>
+            <if test="userId != null">AND c.user_id = #{userId}</if>
+            <if test="keyword != null and keyword != ''">
+                AND (c.content LIKE CONCAT('%', #{keyword}, '%') OR u.username LIKE CONCAT('%', #{keyword}, '%'))
+            </if>
+        </where>
+    </sql>
+
+    <select id="selectAllForAdmin" resultMap="BaseResultMap">
+        SELECT c.*, u.username, u.avatar
+        FROM sys_player_show_comment c
+        LEFT JOIN sys_user u ON c.user_id = u.id
+        <include refid="Admin_Filter"/>
+        ORDER BY c.created_at DESC
+        LIMIT #{offset}, #{size}
+    </select>
+
+    <select id="countAllForAdmin" resultType="long">
+        SELECT COUNT(*)
+        FROM sys_player_show_comment c
+        LEFT JOIN sys_user u ON c.user_id = u.id
+        <include refid="Admin_Filter"/>
+    </select>
+
     <insert id="insert" useGeneratedKeys="true" keyProperty="id">
         INSERT INTO sys_player_show_comment (show_id, user_id, content, created_at)
         VALUES (#{showId}, #{userId}, #{content}, NOW())
     </insert>
+
+    <delete id="deleteById">
+        DELETE FROM sys_player_show_comment WHERE id = #{id}
+    </delete>
 
 </mapper>

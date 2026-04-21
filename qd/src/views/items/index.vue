@@ -352,8 +352,7 @@
               <p class="card-meta">{{ getCardSubtitle(entry) }}</p>
               <div class="card-footer">
                 <p class="card-price">¥ {{ formatPrice(entry.price) }}</p>
-                  <span class="seller-text">{{ getCounterpartyText(entry) }}</span>
-                </div>
+              </div>
               </div>
           </div>
         </div>
@@ -610,14 +609,12 @@ const handlePageChange = (current) => {
   }
 
   const getItemName = (entry) => entry.inventory?.name || entry.item?.nameCn || entry.item?.name || '\u672a\u77e5\u9970\u54c1'
-  const getItemIcon = (entry) => entry.inventory?.iconUrl || entry.item?.iconUrl || '/default-item.png'
+const getItemIcon = (entry) => entry.inventory?.iconUrl || entry.item?.iconUrl || '/default-item.svg'
 const getEntryDisplayModel = (entry) => getItemDisplayModel(entry)
 const getItemExterior = (entry) => getEntryDisplayModel(entry).filterExterior
 const getCategoryText = (value) => resolvedCategoryTextMap[value] || categoryTextMap[value] || value || '\u5176\u4ed6'
 const getExteriorText = (value) => resolvedExteriorTextMap[value] || exteriorTextMap[value] || value || '\u672a\u77e5\u5916\u89c2'
   const formatPrice = (price) => Number(price || 0).toFixed(2)
-  const getCounterpartyText = (entry) =>
-    entry.user?.username || (marketMode.value === 'buy' ? '\u67e5\u770b\u6c42\u8d2d' : '\u67e5\u770b\u8be6\u60c5')
 const getResolvedCategory = (entry) => resolveItemCategory(entry)
 const getResolvedSubCategory = (entry) => resolveItemSubCategory(entry)
 const getResolvedQuality = (entry) => getEntryDisplayModel(entry).resolvedQuality
@@ -1255,11 +1252,6 @@ onMounted(() => {
   color: #f0b321;
   font-size: 18px;
   font-weight: 700;
-}
-
-.seller-text {
-  color: #9ca3af;
-  font-size: 12px;
 }
 
 .pagination-wrap {

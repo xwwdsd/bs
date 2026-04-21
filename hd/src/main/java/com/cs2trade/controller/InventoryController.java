@@ -3,6 +3,7 @@ package com.cs2trade.controller;
 import com.cs2trade.dto.Result;
 import com.cs2trade.entity.UserInventory;
 import com.cs2trade.security.CustomUserDetails;
+import com.cs2trade.service.MarketAnalyticsService;
 import com.cs2trade.service.SteamInventoryService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -28,6 +29,7 @@ import java.util.List;
 public class InventoryController {
 
     private final SteamInventoryService steamInventoryService;
+    private final MarketAnalyticsService marketAnalyticsService;
 
     /**
      * 获取当前用户的库存列表
@@ -82,6 +84,11 @@ public class InventoryController {
      *
      * @return Long 用户ID
      */
+    @GetMapping("/analysis")
+    public Result<?> getInventoryAnalysis() {
+        return Result.success(marketAnalyticsService.getInventoryAnalysis(getCurrentUserId()));
+    }
+
     private Long getCurrentUserId() {
         Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
         if (authentication == null || !authentication.isAuthenticated()) {

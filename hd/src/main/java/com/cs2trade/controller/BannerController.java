@@ -53,4 +53,9 @@ public class BannerController {
     public Result<Boolean> updateBannerStatus(@PathVariable Long id, @RequestParam Integer status) {
         return Result.success(bannerService.updateBannerStatus(id, status));
     }
+
+    @PutMapping("/admin/banners/{id}/sort")
+    public Result<Boolean> updateBannerSort(@PathVariable Long id, @RequestParam Integer sortOrder) {
+        return Result.success(bannerService.updateBannerSort(id, sortOrder));
+    }
 }

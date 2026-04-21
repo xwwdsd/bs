@@ -3,6 +3,7 @@ package com.cs2trade.mapper;
 import com.cs2trade.entity.Item;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
+import org.apache.ibatis.annotations.Update;
 
 import java.util.List;
 
@@ -91,6 +92,13 @@ public interface ItemMapper {
      * @return int 影响的行数
      */
     int updateById(Item item);
+
+    @Update("""
+            UPDATE item
+            SET icon_url = #{iconUrl}, updated_at = NOW()
+            WHERE id = #{id}
+            """)
+    int updateIconUrl(@Param("id") Long id, @Param("iconUrl") String iconUrl);
 
     /**
      * 根据ID删除饰品

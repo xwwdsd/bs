@@ -13,6 +13,7 @@
         <result property="relatedItemId" column="related_item_id"/>
         <result property="relatedSellOrderId" column="related_sell_order_id"/>
         <result property="itemName" column="item_name"/>
+        <result property="itemIconUrl" column="item_icon_url"/>
         <result property="bargainPrice" column="bargain_price"/>
         <result property="senderId" column="sender_id"/>
         <result property="senderName" column="sender_name"/>
@@ -20,17 +21,60 @@
     </resultMap>
 
     <select id="selectById" resultMap="MessageMap">
-        SELECT * FROM sys_message WHERE id = #{id}
+        SELECT m.*, i.icon_url AS item_icon_url
+        FROM sys_message m
+        LEFT JOIN item i ON i.id = m.related_item_id
+        WHERE m.id = #{id}
     </select>
 
     <select id="getMessages" resultMap="MessageMap">
-        SELECT * FROM sys_message 
-        WHERE user_id = #{userId} 
+        SELECT m.*, i.icon_url AS item_icon_url
+        FROM sys_message m
+        LEFT JOIN item i ON i.id = m.related_item_id
+        WHERE m.user_id = #{userId}
         <if test="type != null">
-            AND type = #{type}
+            AND m.type = #{type}
         </if>
-        ORDER BY created_at DESC
+        ORDER BY m.created_at DESC
         LIMIT #{offset}, #{size}
+    </select>
+
+    <sql id="Admin_Filter">
+        <where>
+            <if test="userId != null">
+                AND m.user_id = #{userId}
+            </if>
+            <if test="type != null">
+                AND m.type = #{type}
+            </if>
+            <if test="status != null">
+                AND m.status = #{status}
+            </if>
+            <if test="keyword != null and keyword != ''">
+                AND (
+                    m.title LIKE CONCAT('%', #{keyword}, '%')
+                    OR m.content LIKE CONCAT('%', #{keyword}, '%')
+                    OR m.related_order_no LIKE CONCAT('%', #{keyword}, '%')
+                    OR m.item_name LIKE CONCAT('%', #{keyword}, '%')
+                    OR m.sender_name LIKE CONCAT('%', #{keyword}, '%')
+                )
+            </if>
+        </where>
+    </sql>
+
+    <select id="selectAllForAdmin" resultMap="MessageMap">
+        SELECT m.*, i.icon_url AS item_icon_url
+        FROM sys_message m
+        LEFT JOIN item i ON i.id = m.related_item_id
+        <include refid="Admin_Filter"/>
+        ORDER BY m.created_at DESC
+        LIMIT #{offset}, #{size}
+    </select>
+
+    <select id="countAllForAdmin" resultType="long">
+        SELECT COUNT(*)
+        FROM sys_message m
+        <include refid="Admin_Filter"/>
     </select>
 
     <select id="countMessages" resultType="int">

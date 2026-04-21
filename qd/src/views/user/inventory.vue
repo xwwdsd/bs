@@ -24,6 +24,10 @@
             :active="activeTab === 'purchase'"
           />
           <InventoryBargainTab v-show="activeTab === 'bargain'" :active="activeTab === 'bargain'" />
+          <InventorySellAdviceTab
+            v-show="activeTab === 'sellAdvice'"
+            :active="activeTab === 'sellAdvice'"
+          />
         </div>
       </section>
     </main>
@@ -36,11 +40,13 @@ import SiteHeader from '@/components/SiteHeader.vue'
 import InventorySteamTab from '@/views/user/components/InventorySteamTab.vue'
 import InventoryPurchaseRecordsTab from '@/views/user/components/InventoryPurchaseRecordsTab.vue'
 import InventoryBargainTab from '@/views/user/components/InventoryBargainTab.vue'
+import InventorySellAdviceTab from '@/views/user/components/InventorySellAdviceTab.vue'
 
 const tabs = [
   { key: 'steam', label: 'Steam库存' },
   { key: 'purchase', label: '购买记录' },
-  { key: 'bargain', label: '我的还价' }
+  { key: 'bargain', label: '我的还价' },
+  { key: 'sellAdvice', label: '建议出售' }
 ]
 
 const activeTab = ref('steam')

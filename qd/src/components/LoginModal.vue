@@ -140,11 +140,28 @@ const form = reactive({
   confirmPassword: ''
 })
 
+const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+
 const validateConfirmPassword = (rule, value, callback) => {
   if (value !== form.password) {
     callback(new Error('两次输入的密码不一致'))
     return
   }
+  callback()
+}
+
+const validateOptionalEmail = (rule, value, callback) => {
+  const normalizedValue = value?.trim()
+  if (!normalizedValue) {
+    callback()
+    return
+  }
+
+  if (!emailPattern.test(normalizedValue)) {
+    callback(new Error('请输入正确的邮箱地址'))
+    return
+  }
+
   callback()
 }
 
@@ -159,8 +176,7 @@ const rules = {
     { pattern: /^[\u4e00-\u9fa5a-zA-Z0-9_]+$/, message: '用户名只能包含中文、英文、数字和下划线', trigger: 'blur' }
   ],
   email: [
-    { required: true, message: '请输入邮箱', trigger: 'blur' },
-    { type: 'email', message: '请输入正确的邮箱地址', trigger: 'blur' }
+    { validator: validateOptionalEmail, trigger: 'blur' }
   ],
   password: [
     { required: true, message: '请输入密码', trigger: 'blur' },
@@ -221,9 +237,10 @@ const handleSubmit = async () => {
       return
     }
 
+    const email = form.email.trim()
     await register({
       username: form.username,
-      email: form.email,
+      ...(email ? { email } : {}),
       password: form.password,
       confirmPassword: form.confirmPassword
     })

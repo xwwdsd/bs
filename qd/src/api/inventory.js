@@ -28,6 +28,10 @@ export const getMarketableInventory = () => {
   return request.get('/v1/inventory/marketable', { timeout: 15000 })
 }
 
+export const getInventoryAnalysis = () => {
+  return request.get('/v1/inventory/analysis', { timeout: 15000 })
+}
+
 /**
  * 获取用户库存（用于出售）
  * @returns {Promise}

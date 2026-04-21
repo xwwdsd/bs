@@ -82,7 +82,7 @@
         <el-table-column label="饰品" min-width="300">
           <template #default="{ row }">
             <div class="item-cell">
-              <img :src="row.item?.iconUrl || '/default-item.png'" :alt="getItemName(row)" class="item-image" />
+              <img :src="row.item?.iconUrl || '/default-item.svg'" :alt="getItemName(row)" class="item-image" />
               <div class="item-copy">
                 <div class="item-name">{{ getItemName(row) }}</div>
                 <div class="item-subtitle">{{ getOrderSubtitle(row) }}</div>

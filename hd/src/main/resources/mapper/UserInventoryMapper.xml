@@ -47,6 +47,7 @@
             <result column="item_quality" property="quality"/>
             <result column="item_exterior" property="exterior"/>
             <result column="item_icon_url" property="iconUrl"/>
+            <result column="item_steam_market_hash_name" property="steamMarketHashName"/>
             <result column="item_buff_price" property="buffPrice"/>
             <result column="item_steam_reference_price" property="steamReferencePrice"/>
             <result column="item_steam_reference_currency" property="steamReferenceCurrency"/>
@@ -67,7 +68,7 @@
     <sql id="Item_Column_List">
         i.id as item_id, i.item_id as item_item_id, i.name as item_name, i.name_cn as item_name_cn,
         i.category as item_category, i.quality as item_quality, i.exterior as item_exterior,
-        i.icon_url as item_icon_url, i.buff_price as item_buff_price,
+        i.icon_url as item_icon_url, i.steam_market_hash_name as item_steam_market_hash_name, i.buff_price as item_buff_price,
         i.steam_reference_price as item_steam_reference_price,
         i.steam_reference_currency as item_steam_reference_currency,
         i.steam_reference_price_source as item_steam_reference_price_source,
@@ -107,6 +108,42 @@
     </select>
 
     <!-- 根据用户ID和Asset ID查询库存 -->
+    <sql id="Admin_Filter">
+        <where>
+            <if test="userId != null">AND ui.user_id = #{userId}</if>
+            <if test="itemId != null">AND ui.item_id = #{itemId}</if>
+            <if test="status != null">AND ui.status = #{status}</if>
+            <if test="isMarketable != null">AND ui.is_marketable = #{isMarketable}</if>
+            <if test="keyword != null and keyword != ''">
+                AND (
+                    ui.name LIKE CONCAT('%', #{keyword}, '%')
+                    OR ui.market_hash_name LIKE CONCAT('%', #{keyword}, '%')
+                    OR ui.asset_id LIKE CONCAT('%', #{keyword}, '%')
+                    OR i.name LIKE CONCAT('%', #{keyword}, '%')
+                    OR i.name_cn LIKE CONCAT('%', #{keyword}, '%')
+                )
+            </if>
+        </where>
+    </sql>
+
+    <select id="selectAllForAdmin" resultMap="BaseResultMap">
+        SELECT
+        <include refid="Base_Column_List"/>,
+        <include refid="Item_Column_List"/>
+        FROM user_inventory ui
+        LEFT JOIN item i ON ui.item_id = i.id
+        <include refid="Admin_Filter"/>
+        ORDER BY ui.updated_at DESC
+        LIMIT #{offset}, #{size}
+    </select>
+
+    <select id="countAllForAdmin" resultType="long">
+        SELECT COUNT(*)
+        FROM user_inventory ui
+        LEFT JOIN item i ON ui.item_id = i.id
+        <include refid="Admin_Filter"/>
+    </select>
+
     <select id="selectByUserIdAndAssetId" resultMap="BaseResultMap">
         SELECT
         <include refid="Base_Column_List"/>,

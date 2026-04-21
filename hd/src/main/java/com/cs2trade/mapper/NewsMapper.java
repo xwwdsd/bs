@@ -14,6 +14,7 @@ public interface NewsMapper {
     News selectById(Long id);
     int insert(News news);
     int update(News news);
+    int updateByAdmin(News news);
     int updateViews(Long id);
     int deleteById(Long id);
     int updateStatus(@Param("id") Long id, @Param("status") Integer status, @Param("rejectReason") String rejectReason);

@@ -1,215 +1,228 @@
 <template>
-  <div class="admin-common-page">
-    <div class="page-header">
-      <h1>饰品管理</h1>
-      <p>管理饰品数据、分类和价格</p>
-    </div>
-
-    <el-card class="content-card">
-      <div class="card-header">
-        <div class="header-left">
-          <el-input
-            v-model="searchKeyword"
-            placeholder="搜索饰品名称"
-            class="search-input"
-            clearable
-            @keyup.enter="handleSearch"
-          >
-            <template #prefix>
-              <el-icon><Search /></el-icon>
-            </template>
-          </el-input>
-          <el-select v-model="categoryFilter" placeholder="分类" clearable class="filter-select" @change="handleSearch">
-            <el-option label="步枪" value="rifle" />
-            <el-option label="手枪" value="pistol" />
-            <el-option label="冲锋枪" value="smg" />
-            <el-option label="狙击步枪" value="sniper_rifle" />
-            <el-option label="刀" value="knife" />
-            <el-option label="手套" value="glove" />
-          </el-select>
-        </div>
-        <div class="header-right">
-          <el-button @click="refreshData" :loading="loading">刷新</el-button>
-        </div>
+  <div class="admin-page">
+    <el-card shadow="never" class="panel">
+      <div class="toolbar">
+        <el-input
+          v-model="query.keyword"
+          placeholder="搜索饰品名称或市场名称"
+          clearable
+          @keyup.enter="loadData"
+        />
+        <el-input v-model="query.category" placeholder="分类" clearable @keyup.enter="loadData" />
+        <el-select v-model="query.isActive" placeholder="启用状态" clearable>
+          <el-option label="启用" :value="1" />
+          <el-option label="停用" :value="0" />
+        </el-select>
+        <el-button type="primary" :icon="Search" @click="search">查询</el-button>
+        <el-button :icon="Plus" @click="openEditor()">新增</el-button>
       </div>
 
-      <el-table :data="items" v-loading="loading" style="width: 100%">
-        <el-table-column prop="id" label="ID" width="80" />
-        <el-table-column prop="name" label="名称" min-width="250" />
-        <el-table-column prop="category" label="分类" width="120" />
-        <el-table-column prop="exterior" label="外观" width="100" />
-        <el-table-column prop="price" label="价格" width="100">
+      <el-table :data="rows" v-loading="loading" row-key="id">
+        <el-table-column prop="id" label="编号" width="80" />
+        <el-table-column label="图标" width="92">
           <template #default="{ row }">
-            <span class="price-text">¥ {{ row.price }}</span>
+            <el-image
+              v-if="row.iconUrl"
+              class="item-icon"
+              :src="row.iconUrl"
+              fit="contain"
+              :preview-src-list="[row.iconUrl]"
+              preview-teleported
+            />
+            <span v-else class="empty-image">无图</span>
           </template>
         </el-table-column>
-        <el-table-column prop="stock" label="库存" width="80" />
-        <el-table-column prop="status" label="状态" width="80">
+        <el-table-column prop="nameCn" label="中文名" min-width="180" show-overflow-tooltip />
+        <el-table-column prop="name" label="英文名" min-width="220" show-overflow-tooltip />
+        <el-table-column prop="category" label="分类" width="110" />
+        <el-table-column prop="exterior" label="外观" width="110" />
+        <el-table-column prop="steamReferencePrice" label="参考价" width="120">
+          <template #default="{ row }">{{ money(row.steamReferencePrice || row.buffPrice) }}</template>
+        </el-table-column>
+        <el-table-column prop="isActive" label="状态" width="90">
           <template #default="{ row }">
-            <el-tag :type="row.status === 'onsale' ? 'success' : 'info'">
-              {{ row.status === 'onsale' ? '在售' : '下架' }}
+            <el-tag :type="row.isActive === 1 ? 'success' : 'info'">
+              {{ row.isActive === 1 ? '启用' : '停用' }}
             </el-tag>
           </template>
         </el-table-column>
-        <el-table-column label="操作" width="200" fixed="right">
+        <el-table-column label="操作" width="160" fixed="right">
           <template #default="{ row }">
-            <el-button size="small" @click="handleEdit(row)">编辑</el-button>
-            <el-button size="small" type="danger" @click="handleDelete(row)">删除</el-button>
+            <el-button size="small" @click="openEditor(row)">编辑</el-button>
+            <el-button size="small" type="danger" @click="removeItem(row)">删除</el-button>
           </template>
         </el-table-column>
       </el-table>
 
-      <div class="pagination-wrap">
-        <el-pagination
-          background
-          layout="prev, pager, next, sizes, total"
-          :current-page="page"
-          :page-size="pageSize"
-          :total="total"
-          @current-change="handlePageChange"
-          @size-change="handleSizeChange"
-        />
-      </div>
+      <el-pagination
+        class="pager"
+        background
+        layout="prev, pager, next, sizes, total"
+        :current-page="query.page"
+        :page-size="query.size"
+        :total="total"
+        @current-change="changePage"
+        @size-change="changeSize"
+      />
     </el-card>
+
+    <el-dialog v-model="editorVisible" :title="form.id ? '编辑饰品' : '新增饰品'" width="700px">
+      <el-form :model="form" label-width="100px">
+        <el-form-item label="物品编号">
+          <el-input v-model="form.itemId" />
+        </el-form-item>
+        <el-form-item label="中文名">
+          <el-input v-model="form.nameCn" />
+        </el-form-item>
+        <el-form-item label="英文名">
+          <el-input v-model="form.name" />
+        </el-form-item>
+        <el-form-item label="分类">
+          <el-input v-model="form.category" />
+        </el-form-item>
+        <el-form-item label="子分类">
+          <el-input v-model="form.subCategory" />
+        </el-form-item>
+        <el-form-item label="品质">
+          <el-input v-model="form.quality" />
+        </el-form-item>
+        <el-form-item label="外观">
+          <el-input v-model="form.exterior" />
+        </el-form-item>
+        <el-form-item label="图标上传">
+          <AdminImageUpload
+            v-model="form.iconUrl"
+            :width="220"
+            :height="220"
+            tip="饰品图标会在后台列表和前台饰品卡片中复用"
+          />
+        </el-form-item>
+        <el-form-item label="参考价">
+          <el-input-number v-model="form.steamReferencePrice" :min="0" :precision="2" />
+        </el-form-item>
+        <el-form-item label="启用">
+          <el-switch v-model="form.isActive" :active-value="1" :inactive-value="0" />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="editorVisible = false">取消</el-button>
+        <el-button type="primary" @click="saveItem">保存</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
+import { onMounted, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Search } from '@element-plus/icons-vue'
-import { getAllItems, deleteItem } from '@/api/admin'
+import { Plus, Search } from '@element-plus/icons-vue'
+import AdminImageUpload from '@/components/admin/AdminImageUpload.vue'
+import { addItem, deleteItem, getAllItems, updateItem } from '@/api/admin'
 
 const loading = ref(false)
-const searchKeyword = ref('')
-const categoryFilter = ref('')
-const items = ref([])
-const page = ref(1)
-const pageSize = ref(20)
+const rows = ref([])
 const total = ref(0)
+const editorVisible = ref(false)
+const query = reactive({ page: 1, size: 20, keyword: '', category: '', isActive: null })
+const form = reactive({})
 
-const fetchItems = async () => {
+const money = (value) => {
+  if (value == null || value === '') return '-'
+  return `¥ ${Number(value).toFixed(2)}`
+}
+
+const loadData = async () => {
   loading.value = true
   try {
-    const res = await getAllItems()
-    items.value = res || []
-    total.value = items.value.length
-  } catch (error) {
-    ElMessage.error(error?.message || '获取饰品列表失败')
+    const data = await getAllItems(query)
+    rows.value = data?.list || []
+    total.value = data?.total || 0
   } finally {
     loading.value = false
   }
 }
 
-const handleSearch = () => {
-  page.value = 1
-  fetchItems()
+const search = () => {
+  query.page = 1
+  loadData()
 }
 
-const refreshData = () => {
-  fetchItems()
+const changePage = (page) => {
+  query.page = page
+  loadData()
 }
 
-const handlePageChange = (newPage) => {
-  page.value = newPage
-  fetchItems()
+const changeSize = (size) => {
+  query.size = size
+  query.page = 1
+  loadData()
 }
 
-const handleSizeChange = (newSize) => {
-  pageSize.value = newSize
-  page.value = 1
-  fetchItems()
+const openEditor = (row = {}) => {
+  Object.keys(form).forEach((key) => delete form[key])
+  Object.assign(form, { isActive: 1 }, row)
+  editorVisible.value = true
 }
 
-const handleEdit = (row) => {
-  ElMessage.info(`编辑饰品：${row.name}`)
-  // TODO: 打开编辑对话框
-}
-
-const handleDelete = async (row) => {
-  try {
-    await ElMessageBox.confirm(`确定要删除饰品 "${row.name}" 吗？`, '提示', {
-      confirmButtonText: '确定',
-      cancelButtonText: '取消',
-      type: 'warning'
-    })
-    await deleteItem(row.id)
-    ElMessage.success('删除成功')
-    fetchItems()
-  } catch (error) {
-    if (error !== 'cancel') {
-      ElMessage.error(error?.message || '删除失败')
-    }
+const saveItem = async () => {
+  if (form.id) {
+    await updateItem(form.id, form)
+  } else {
+    await addItem(form)
   }
+  ElMessage.success('饰品保存成功')
+  editorVisible.value = false
+  loadData()
 }
 
-onMounted(() => {
-  fetchItems()
-})
+const removeItem = async (row) => {
+  await ElMessageBox.confirm(`确定删除饰品“${row.nameCn || row.name}”吗？`, '删除确认', {
+    type: 'warning'
+  })
+  await deleteItem(row.id)
+  ElMessage.success('饰品已删除')
+  loadData()
+}
+
+onMounted(loadData)
 </script>
 
 <style scoped>
-.admin-common-page {
-  padding: 24px;
-}
-
-.page-header {
-  margin-bottom: 24px;
-}
-
-.page-header h1 {
-  margin: 0 0 8px;
-  font-size: 28px;
-  color: #1f2937;
-}
-
-.page-header p {
-  margin: 0;
-  color: #6b7280;
-  font-size: 14px;
-}
-
-.content-card {
-  border: 1px solid #e5e7eb;
-  border-radius: 16px;
-  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.04);
-}
-
-.card-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 20px;
+.admin-page {
+  display: grid;
   gap: 16px;
 }
 
-.header-left {
-  flex: 1;
-  display: flex;
+.panel {
+  border-radius: 8px;
+}
+
+.toolbar {
+  display: grid;
+  grid-template-columns: minmax(220px, 1fr) 140px 140px auto auto;
   gap: 12px;
+  margin-bottom: 16px;
 }
 
-.search-input {
-  width: 300px;
+.item-icon {
+  width: 52px;
+  height: 52px;
+  display: block;
 }
 
-.filter-select {
-  width: 150px;
+.empty-image {
+  color: #94a3b8;
+  font-size: 12px;
 }
 
-.header-right {
-  display: flex;
-  gap: 12px;
-}
-
-.pagination-wrap {
-  display: flex;
+.pager {
+  margin-top: 16px;
   justify-content: flex-end;
-  margin-top: 20px;
 }
 
-.price-text {
-  color: #f59e0b;
-  font-weight: 600;
+@media (max-width: 1000px) {
+  .toolbar {
+    grid-template-columns: 1fr;
+  }
 }
 </style>

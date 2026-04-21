@@ -32,7 +32,7 @@
 
               <div class="order-body">
                 <div class="item-info">
-                  <img :src="order.item?.iconUrl || '/default-item.png'" class="item-image" />
+                  <img :src="order.item?.iconUrl || '/default-item.svg'" class="item-image" />
                   <div>
                     <h3>{{ order.item?.nameCn || order.item?.name || '未知饰品' }}</h3>
                     <p v-if="getOrderExteriorText(order)">

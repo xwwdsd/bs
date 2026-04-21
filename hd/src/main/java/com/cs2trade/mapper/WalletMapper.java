@@ -4,6 +4,7 @@ import com.cs2trade.entity.Wallet;
 import org.apache.ibatis.annotations.*;
 
 import java.math.BigDecimal;
+import java.util.List;
 
 /**
  * 用户钱包数据访问层接口
@@ -33,6 +34,9 @@ public interface WalletMapper {
      */
     @Select("SELECT * FROM user_wallet WHERE user_id = #{userId}")
     Wallet selectByUserId(@Param("userId") Long userId);
+
+    @Select("SELECT * FROM user_wallet ORDER BY updated_at DESC")
+    List<Wallet> selectAll();
 
     /**
      * 插入新钱包

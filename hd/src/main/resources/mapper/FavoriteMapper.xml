@@ -67,6 +67,48 @@
         ORDER BY f.created_at DESC
     </select>
 
+    <sql id="Admin_Filter">
+        <where>
+            <if test="userId != null">
+                AND f.user_id = #{userId}
+            </if>
+            <if test="type != null">
+                AND f.type = #{type}
+            </if>
+            <if test="targetId != null">
+                AND (
+                    (f.type = 1 AND f.item_id = #{targetId})
+                    OR (f.type = 2 AND f.news_id = #{targetId})
+                )
+            </if>
+        </where>
+    </sql>
+
+    <select id="selectAll" resultMap="FavoriteMap">
+        SELECT f.id, f.user_id, f.item_id, f.news_id, f.type, f.created_at,
+               i.id as item_pk, i.item_id as item_item_id, i.name as item_name, i.name_cn as item_name_cn, i.icon_url as item_icon_url,
+               i.buff_price as item_buff_price,
+               i.steam_reference_price as item_steam_reference_price,
+               i.steam_reference_currency as item_steam_reference_currency,
+               i.steam_reference_price_source as item_steam_reference_price_source,
+               i.steam_reference_price_updated_at as item_steam_reference_price_updated_at,
+               i.rarity as item_rarity,
+               n.id as news_pk, n.title as news_title, n.summary as news_summary, n.cover_image as news_cover_image,
+               n.category as news_category, n.author as news_author, n.views as news_views, n.created_at as news_created_at
+        FROM sys_favorite f
+        LEFT JOIN item i ON f.item_id = i.id AND f.type = 1
+        LEFT JOIN sys_news n ON f.news_id = n.id AND f.type = 2
+        <include refid="Admin_Filter"/>
+        ORDER BY f.created_at DESC
+        LIMIT #{offset}, #{size}
+    </select>
+
+    <select id="countAll" resultType="long">
+        SELECT COUNT(*)
+        FROM sys_favorite f
+        <include refid="Admin_Filter"/>
+    </select>
+
     <insert id="addFavorite" useGeneratedKeys="true" keyProperty="id">
         INSERT INTO sys_favorite (user_id, item_id, news_id, type, created_at)
         VALUES (#{userId}, #{itemId}, #{newsId}, #{type}, NOW())
@@ -95,4 +137,8 @@
             AND news_id = #{targetId}
         </if>
     </select>
+
+    <delete id="deleteById">
+        DELETE FROM sys_favorite WHERE id = #{id}
+    </delete>
 </mapper>

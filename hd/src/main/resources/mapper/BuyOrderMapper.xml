@@ -51,6 +51,24 @@
         WHERE id = #{id}
     </select>
 
+    <select id="selectAll" resultMap="MarketResultMap">
+        SELECT
+            bo.id, bo.user_id, bo.item_id, bo.price, bo.quantity, bo.filled_quantity, bo.status,
+            bo.expire_time, bo.auto_accept, bo.created_at, bo.updated_at,
+            i.id as item_resolved_id, i.item_id as item_item_id, i.name as item_name, i.name_cn as item_name_cn,
+            i.category as item_category, i.sub_category as item_sub_category, i.quality as item_quality,
+            i.rarity as item_rarity, i.exterior as item_exterior, i.icon_url as item_icon_url,
+            i.buff_price as item_buff_price, i.steam_reference_price as item_steam_reference_price,
+            i.steam_reference_currency as item_steam_reference_currency,
+            i.steam_reference_price_source as item_steam_reference_price_source,
+            i.steam_reference_price_updated_at as item_steam_reference_price_updated_at,
+            u.id as buyer_id, u.username as buyer_username, u.avatar as buyer_avatar
+        FROM buy_order bo
+        LEFT JOIN item i ON bo.item_id = i.id
+        LEFT JOIN sys_user u ON bo.user_id = u.id
+        ORDER BY bo.created_at DESC
+    </select>
+
     <select id="selectByUserId" resultMap="MarketResultMap">
         SELECT
             bo.id, bo.user_id, bo.item_id, bo.price, bo.quantity, bo.filled_quantity, bo.status,

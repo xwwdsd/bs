@@ -22,6 +22,10 @@ export const getItemById = (id) => {
   return get(`/v1/items/${id}`)
 }
 
+export const getItemMarketPanel = (id) => {
+  return get(`/v1/items/${id}/market-panel`)
+}
+
 /**
  * 获取所有启用的饰品
  * @returns {Promise}
@@ -46,6 +50,10 @@ export const getItemsByCategory = (category) => {
  */
 export const searchItems = (keyword) => {
   return get('/v1/items/search', { keyword })
+}
+
+export const getRecommendations = (limit = 8) => {
+  return get('/v1/items/recommendations', { limit }, { timeout: 45000 })
 }
 
 /**

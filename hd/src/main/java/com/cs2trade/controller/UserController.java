@@ -63,9 +63,9 @@ public class UserController {
     @PostMapping("/update")
     public Result<User> updateProfile(@RequestBody UpdateProfileRequest request) {
         Long userId = getCurrentUserId();
-        log.info("更新用户信息: userId={}, nickname={}", userId, request.getNickname());
+        log.info("更新用户信息: userId={}, nickname={}, email={}", userId, request.getNickname(), request.getEmail());
         
-        User updatedUser = userService.updateProfile(userId, request.getNickname(), request.getAvatar());
+        User updatedUser = userService.updateProfile(userId, request.getNickname(), request.getAvatar(), request.getEmail());
         updatedUser.setPassword(null);
         updatedUser.setSteamApiKey(null);
         
@@ -203,6 +203,7 @@ public class UserController {
     @lombok.Data
     public static class UpdateProfileRequest {
         private String nickname;
+        private String email;
         private String avatar;
     }
 

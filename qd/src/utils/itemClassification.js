@@ -251,6 +251,12 @@ const inferSpecialCategory = (texts) => {
     return { category: 'charm', subCategory }
   }
 
+  for (const [subCategory, aliases] of Object.entries(SPECIAL_OTHER_SUBCATEGORY_TEXTS)) {
+    if (hasAnyAlias(combined, aliases)) {
+      return { category: 'other', subCategory }
+    }
+  }
+
   if (
     ['\u63a2\u5458', 'agent', '\u7279\u8b66', '\u53cd\u6050\u7cbe\u82f1', 'fbi', 'swat', 'sas'].some((token) =>
       combined.includes(normalizeText(token))
@@ -261,12 +267,6 @@ const inferSpecialCategory = (texts) => {
 
   if (['\u6050\u6016\u5206\u5b50', '\u4e13\u4e1a\u4eba\u58eb', '\u51e4\u51f0\u6218\u58eb'].some((token) => combined.includes(normalizeText(token)))) {
     return { category: 'agent', subCategory: 't' }
-  }
-
-  for (const [subCategory, aliases] of Object.entries(SPECIAL_OTHER_SUBCATEGORY_TEXTS)) {
-    if (hasAnyAlias(combined, aliases)) {
-      return { category: 'other', subCategory }
-    }
   }
 
   return null
@@ -450,6 +450,25 @@ export const normalizeQualityKey = (value) => {
   return map[normalized] || normalized
 }
 
+const WEAPON_PAINT_QUALITY_KEYS = new Set(['consumer', 'industrial', 'mil-spec', 'restricted', 'classified', 'covert'])
+const STRICT_NO_WEAR_QUALITY_CATEGORIES = new Set(['sticker', 'charm', 'agent'])
+const STRICT_NO_WEAR_QUALITY_SUBCATEGORIES = new Set(['music', 'graffiti'])
+
+const isQualityCompatibleWithCategory = (quality, category, subCategory) => {
+  if (!quality) {
+    return false
+  }
+
+  if (
+    (STRICT_NO_WEAR_QUALITY_CATEGORIES.has(category) || STRICT_NO_WEAR_QUALITY_SUBCATEGORIES.has(subCategory)) &&
+    WEAPON_PAINT_QUALITY_KEYS.has(quality)
+  ) {
+    return false
+  }
+
+  return true
+}
+
 const QUALITY_INFERENCE_RULES = [
   { key: 'contraband', aliases: ['违禁', 'contraband', 'ancient'] },
   { key: 'covert', aliases: ['隐秘', 'covert', 'legendary'] },
@@ -487,6 +506,8 @@ export const inferQualityFromTexts = (...values) => {
 }
 
 export const resolveItemQuality = (source) => {
+  const category = resolveItemCategory(source)
+  const subCategory = resolveItemSubCategory(source)
   const directCandidates = [
     source?.inventory?.rarity,
     source?.rarity,
@@ -496,13 +517,13 @@ export const resolveItemQuality = (source) => {
 
   for (const value of directCandidates) {
     const normalized = normalizeQualityKey(value)
-    if (normalized) {
+    if (isQualityCompatibleWithCategory(normalized, category, subCategory)) {
       return normalized
     }
   }
 
   const inferred = inferQualityFromTexts(...getCandidateTexts(source))
-  if (inferred) {
+  if (isQualityCompatibleWithCategory(inferred, category, subCategory)) {
     return inferred
   }
 
@@ -515,7 +536,7 @@ export const resolveItemQuality = (source) => {
 
   for (const value of fallbackCandidates) {
     const normalized = normalizeQualityKey(value)
-    if (normalized) {
+    if (isQualityCompatibleWithCategory(normalized, category, subCategory)) {
       return normalized
     }
   }

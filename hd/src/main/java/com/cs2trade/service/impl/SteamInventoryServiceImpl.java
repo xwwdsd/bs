@@ -333,14 +333,20 @@ public class SteamInventoryServiceImpl implements SteamInventoryService {
             // 尝试匹配平台饰品
             Item matchedItem = matchItem(itemMap, marketHashName, inventory.getName());
             if (matchedItem == null && marketHashName != null && !marketHashName.isBlank()) {
-                matchedItem = createItemFromInventory(marketHashName, inventory);
-                registerItemAliases(itemMap, matchedItem);
+                try {
+                    matchedItem = createItemFromInventory(marketHashName, inventory);
+                    registerItemAliases(itemMap, matchedItem);
+                } catch (Exception e) {
+                    log.warn("Create inventory-backed item failed: assetId={}, marketHashName={}, message={}",
+                            inventory.getAssetId(), marketHashName, e.getMessage());
+                }
             }
             if (matchedItem != null) {
+                ensureSteamMarketHashName(matchedItem, marketHashName);
                 inventory.setItemId(matchedItem.getId());
                 inventory.setItem(matchedItem);
                 inventory.setMarketPrice(resolveReferencePrice(matchedItem));
-                inventory.setRarity(normalizeRarity(firstNonBlank(matchedItem.getQuality(), matchedItem.getRarity(), inventory.getRarity())));
+                inventory.setRarity(normalizeRarity(firstNonBlank(inventory.getRarity(), matchedItem.getRarity(), matchedItem.getQuality())));
                 inventory.setType(detectItemType(inventory.getName()));
                 inventory.setExterior(resolveExterior(
                         inventory.getPaintWear(),
@@ -779,7 +785,7 @@ public class SteamInventoryServiceImpl implements SteamInventoryService {
         }
 
         if (target.getItem() != null) {
-            target.setRarity(normalizeRarity(firstNonBlank(target.getRarity(), target.getItem().getQuality(), target.getItem().getRarity())));
+            target.setRarity(normalizeRarity(firstNonBlank(target.getRarity(), target.getItem().getRarity(), target.getItem().getQuality())));
             refreshReferencePrice(target);
         }
 
@@ -930,18 +936,32 @@ public class SteamInventoryServiceImpl implements SteamInventoryService {
             return null;
         }
 
-        String normalized = raw.trim().toLowerCase();
-        return switch (normalized) {
+        String normalized = raw.trim().toLowerCase(Locale.ROOT);
+        if (normalized.isBlank()) {
+            return null;
+        }
+
+        String compact = normalized
+                .replace("rarity_", "")
+                .replace("weapon_", "")
+                .replace("csgo_", "")
+                .replaceAll("[\\s_\\-]+", "");
+
+        return switch (compact) {
             case "ancient", "contraband", "违禁" -> "contraband";
             case "immortal", "extraordinary", "非凡" -> "extraordinary";
             case "legendary", "covert", "隐秘" -> "covert";
             case "mythical", "classified", "保密" -> "classified";
             case "rare", "restricted", "受限" -> "restricted";
-            case "uncommon", "mil-spec", "军规级" -> "mil-spec";
-            case "industrial", "工业级" -> "industrial";
-            case "common", "consumer", "消费级" -> "consumer";
+            case "uncommon", "milspec", "milspecgrade", "军规级" -> "mil-spec";
+            case "industrial", "industrialgrade", "工业级" -> "industrial";
+            case "common", "consumer", "consumergrade", "消费级" -> "consumer";
+            case "exotic", "卓越" -> "exotic";
             case "remarkable", "奇异" -> "remarkable";
-            default -> normalized;
+            case "superior", "highgrade", "高级" -> "high-grade";
+            case "basegrade", "normalgrade", "normal", "普通级" -> "normal-grade";
+            case "distinguished", "exceptional", "master", "agentgrade", "探员品质" -> "agent-grade";
+            default -> normalized.replace('_', '-').replaceAll("\\s+", "-");
         };
     }
 
@@ -989,6 +1009,19 @@ public class SteamInventoryServiceImpl implements SteamInventoryService {
         return buffPrice != null && buffPrice.compareTo(BigDecimal.ZERO) > 0 ? buffPrice : BigDecimal.ZERO;
     }
 
+    private void ensureSteamMarketHashName(Item item, String marketHashName) {
+        if (item == null || item.getId() == null || marketHashName == null || marketHashName.isBlank()
+                || marketHashName.equals(item.getSteamMarketHashName())) {
+            return;
+        }
+
+        Item update = new Item();
+        update.setId(item.getId());
+        update.setSteamMarketHashName(marketHashName);
+        itemMapper.updateById(update);
+        item.setSteamMarketHashName(marketHashName);
+    }
+
     private Item createItemFromInventory(String marketHashName, UserInventory inventory) {
         if (marketHashName == null || marketHashName.isBlank()) {
             return null;
@@ -1009,6 +1042,7 @@ public class SteamInventoryServiceImpl implements SteamInventoryService {
         item.setRarity(firstNonBlank(inventory.getRarity(), "common"));
         item.setExterior(inventory.getExterior());
         item.setIconUrl(inventory.getIconUrl());
+        item.setSteamMarketHashName(marketHashName);
         item.setBuffPrice(BigDecimal.ZERO);
         item.setSteamReferenceCurrency(STEAM_REFERENCE_CURRENCY);
 
@@ -1072,6 +1106,7 @@ public class SteamInventoryServiceImpl implements SteamInventoryService {
         }
 
         addItemAlias(itemMap, item.getItemId(), item);
+        addItemAlias(itemMap, item.getSteamMarketHashName(), item);
         addItemAlias(itemMap, item.getName(), item);
         addItemAlias(itemMap, item.getNameCn(), item);
     }

@@ -79,7 +79,7 @@
         <el-table-column label="饰品" min-width="260">
           <template #default="{ row }">
             <div class="item-cell">
-              <img :src="getMessageImage(row)" :alt="getItemName(row)" class="item-image" />
+              <img :src="getMessageImage(row)" :alt="getItemName(row)" class="item-image" @error="handleImageError" />
               <div class="item-copy">
                 <div class="item-name">{{ getItemName(row) }}</div>
                 <div class="item-subtitle">{{ getMessageSubtitle(row) }}</div>
@@ -390,8 +390,15 @@ const getStatusText = (message) => {
 }
 
 const getItemName = (message) => message?.itemName || '未知饰品'
-const getMessageImage = (message) => message?.itemIconUrl || message?.item?.iconUrl || '/default-item.png'
+const DEFAULT_ITEM_IMAGE = '/default-item.svg'
+const getMessageImage = (message) => message?.itemIconUrl || message?.item?.iconUrl || DEFAULT_ITEM_IMAGE
 const getMessageSubtitle = (message) => getMessageDisplayModel(message).subtitle || '还价留言'
+
+const handleImageError = (event) => {
+  if (event?.target && !event.target.src.endsWith(DEFAULT_ITEM_IMAGE)) {
+    event.target.src = DEFAULT_ITEM_IMAGE
+  }
+}
 
 const formatTime = (time) => {
   if (!time) return '-'

@@ -1,5 +1,20 @@
 <template>
   <div class="steam-tab">
+    <div class="analysis-overview" v-loading="analysisLoading">
+      <article class="analysis-card analysis-card-accent">
+        <span>资产总估值</span>
+        <strong>¥ {{ displayTotalValue.toFixed(2) }}</strong>
+      </article>
+      <article class="analysis-card">
+        <span>可出售数量</span>
+        <strong>{{ sellableCount }}</strong>
+      </article>
+      <article class="analysis-card">
+        <span>建议优先出售</span>
+        <strong>{{ recommendedSellCount }}</strong>
+      </article>
+    </div>
+
     <div class="toolbar-card">
       <div class="toolbar-top toolbar-top-right">
         <div class="toolbar-stats">
@@ -120,7 +135,7 @@
                     {{ getCardSecondaryBadgeText(item) }}
                   </span>
                 </div>
-                <img :src="item.iconUrl || item.item?.iconUrl || '/default-item.png'" :alt="item.name || '饰品'" />
+                <img :src="item.iconUrl || item.item?.iconUrl || '/default-item.svg'" :alt="item.name || '饰品'" />
                 <span class="note-tag">备注</span>
                 <div v-if="shouldRenderWearPanel(item)" class="wear-panel">
                   <div class="wear-text">磨损: {{ getWearDisplay(item, 6, 2) }}</div>
@@ -158,6 +173,13 @@
             <div class="card-price-row">
               <div class="price-meta">
                 <p class="card-price">¥ {{ formatPrice(getInventoryReferencePrice(item)) }}</p>
+                <span
+                  v-if="getInventoryReferenceSourceText(item)"
+                  class="reference-source-tag"
+                  :class="`reference-source-tag-${getInventoryReferenceSource(item)}`"
+                >
+                  {{ getInventoryReferenceSourceText(item) }}
+                </span>
                 <span v-if="getCardStatusText(item)" class="card-status" :class="getCardStatusClass(item)">
                   {{ getCardStatusText(item) }}
                 </span>
@@ -182,6 +204,113 @@
         <el-button type="primary" :loading="sellLoading" @click="confirmSell">确认出售</el-button>
       </template>
     </el-dialog>
+
+    <el-dialog
+      v-model="marketSellDialogVisible"
+      width="1060px"
+      :show-close="false"
+      :close-on-click-modal="false"
+      class="market-sell-dialog"
+      @closed="handleSellDialogClosed"
+    >
+      <div v-if="currentSellItem" class="buff-sell-dialog">
+        <div class="buff-sell-header">
+          <div class="buff-sell-header-side"></div>
+          <div class="buff-sell-title-wrap">
+            <h3 class="buff-sell-title">上架饰品 <span>(1件)</span></h3>
+          </div>
+          <div class="buff-sell-header-actions">
+            <button
+              type="button"
+              class="buff-price-sync"
+              :disabled="!sellReferencePrice"
+              @click="applyReferencePrice"
+            >
+              一键定价
+            </button>
+            <button type="button" class="buff-close-button" @click="marketSellDialogVisible = false">&times;</button>
+          </div>
+        </div>
+
+        <div class="buff-sell-table">
+          <div class="buff-sell-table-head">
+            <span class="buff-col-item">饰品</span>
+            <span class="buff-col-market">市场价</span>
+            <span class="buff-col-sale">出售价格</span>
+            <span class="buff-col-actual">实收金额</span>
+          </div>
+
+          <div class="buff-sell-table-row">
+            <div class="buff-item-cell">
+              <div class="buff-item-preview">
+                <img :src="currentSellItemImage" :alt="currentSellItemName" />
+              </div>
+              <div class="buff-item-copy">
+                <h4 class="buff-item-name">{{ currentSellItemName }}</h4>
+                <p class="buff-item-subtitle">{{ currentSellItemSubtitle }}</p>
+                <div class="buff-item-meta">
+                  <span>{{ currentSellItemRarity }}</span>
+                  <span>{{ currentSellItemExterior }}</span>
+                  <span v-if="currentSellItemWear">磨损: {{ currentSellItemWear }}</span>
+                  <span v-if="currentSellItem?.assetId">Asset: {{ currentSellItem.assetId }}</span>
+                </div>
+              </div>
+            </div>
+
+            <div class="buff-market-cell">
+              <strong class="buff-market-price">
+                {{ sellReferencePrice ? `¥ ${formatPrice(sellReferencePrice)}` : '--' }}
+              </strong>
+            </div>
+
+            <div class="buff-input-cell">
+              <label class="buff-price-field" :class="{ 'is-focused': sellPriceFocused }">
+                <span class="buff-price-prefix">¥</span>
+                <input
+                  v-model.number="sellPrice"
+                  type="number"
+                  min="0.01"
+                  step="0.01"
+                  inputmode="decimal"
+                  class="buff-price-input"
+                  placeholder="出售价格"
+                  @focus="sellPriceFocused = true"
+                  @blur="handleSellPriceBlur"
+                  @keyup.enter="confirmSell"
+                />
+              </label>
+            </div>
+
+            <div class="buff-actual-cell">
+              <div class="buff-price-field buff-price-field-readonly">
+                <span class="buff-price-prefix">¥</span>
+                <span class="buff-price-readonly">
+                  {{ sellPrice > 0 ? formatPrice(sellActualAmount) : '实收金额' }}
+                </span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="buff-sell-footer">
+          <div class="buff-sell-income">
+            <span class="buff-sell-income-label">预计收入 |</span>
+            <strong class="buff-sell-income-value">¥ {{ formatPrice(sellActualAmount) }}</strong>
+            <span class="buff-sell-income-meta">(已扣除 ¥ {{ formatPrice(sellFeeAmount) }} 手续费)</span>
+          </div>
+          <p class="buff-sell-note">订单创建后买家付款即可进入发货流程，请及时处理发货。</p>
+          <div class="buff-sell-actions">
+            <button type="button" class="buff-footer-button buff-footer-button-ghost" @click="marketSellDialogVisible = false">
+              取消
+            </button>
+            <button type="button" class="buff-footer-button buff-footer-button-primary" :disabled="sellLoading" @click="confirmSell">
+              <span v-if="sellLoading">上架中...</span>
+              <span v-else>上架</span>
+            </button>
+          </div>
+        </div>
+      </div>
+    </el-dialog>
   </div>
 </template>
 
@@ -189,7 +318,7 @@
 import { computed, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import { createSellOrder } from '@/api/sellOrder'
-import { getInventory, syncInventory } from '@/api/inventory'
+import { getInventory, getInventoryAnalysis, syncInventory } from '@/api/inventory'
 import {
   EXTERIOR_RANGE_MAP as WEAR_RANGE_MAP,
   extractWearFromText as extractWearFromMetadataText,
@@ -212,14 +341,19 @@ const props = defineProps({
 
 const loading = ref(false)
 const syncing = ref(false)
+const analysisLoading = ref(false)
 const hasLoaded = ref(false)
 const inventory = ref([])
+const inventoryAnalysis = ref(null)
 const sortBy = ref('time')
 const sellDialogVisible = ref(false)
+const marketSellDialogVisible = ref(false)
 const currentSellItem = ref(null)
 const sellPrice = ref(0)
 const sellLoading = ref(false)
+const sellPriceFocused = ref(false)
 const selectedInventoryId = ref(null)
+const SELL_ORDER_FEE_RATE = 0.05
 
 const filters = ref({
   search: '',
@@ -245,26 +379,74 @@ const toPositiveNumber = (value) => {
   return Number.isFinite(numeric) && numeric > 0 ? numeric : null
 }
 
-const getInventoryReferencePrice = (item) => {
+const getInventoryReferenceInfo = (item) => {
   if (hasTradeRestriction(item)) {
-    return 0
+    return { price: 0, source: '' }
   }
 
-  const candidates = [
-    item?.item?.steamReferencePrice,
-    item?.steamReferencePrice,
-    item?.item?.buffPrice,
-    item?.buffPrice,
-    item?.marketPrice
+  const candidate = [
+    { price: item?.item?.steamReferencePrice, source: 'steam' },
+    { price: item?.steamReferencePrice, source: 'steam' },
+    { price: item?.item?.buffPrice, source: 'buff' },
+    { price: item?.buffPrice, source: 'buff' },
+    { price: item?.marketPrice, source: 'local' }
   ]
-    .map(toPositiveNumber)
-    .filter((value) => value !== null)
+    .map((entry) => ({
+      price: toPositiveNumber(entry.price),
+      source: entry.source
+    }))
+    .find((entry) => entry.price !== null)
 
-  return candidates[0] || null
+  return candidate || { price: null, source: '' }
+}
+
+const getInventoryReferencePrice = (item) => getInventoryReferenceInfo(item).price
+const getInventoryReferenceSource = (item) => getInventoryReferenceInfo(item).source
+const getInventoryReferenceSourceText = (item) => {
+  const source = getInventoryReferenceSource(item)
+  if (source === 'steam') return 'Steam参考价'
+  if (source === 'buff') return 'Buff回退'
+  if (source === 'local') return '站内参考'
+  return ''
 }
 
 const totalValue = computed(() => inventory.value.reduce((sum, item) => sum + (getInventoryReferencePrice(item) || 0), 0))
+const displayTotalValue = computed(() => Number(inventoryAnalysis.value?.totalValue ?? totalValue.value ?? 0))
+const sellableCount = computed(() => Number(inventoryAnalysis.value?.sellableCount ?? 0))
+const recommendedSellCount = computed(() => Number(inventoryAnalysis.value?.recommendedSellCount ?? 0))
 const selectedCount = computed(() => (selectedInventoryId.value ? 1 : 0))
+const sellReferencePrice = computed(() => getInventoryReferencePrice(currentSellItem.value))
+const sellFeeAmount = computed(() => {
+  const numeric = Number(sellPrice.value)
+  return Number.isFinite(numeric) && numeric > 0 ? numeric * SELL_ORDER_FEE_RATE : 0
+})
+const sellActualAmount = computed(() => {
+  const numeric = Number(sellPrice.value)
+  if (!Number.isFinite(numeric) || numeric <= 0) return 0
+  return Math.max(numeric - sellFeeAmount.value, 0)
+})
+const currentSellItemName = computed(
+  () => currentSellItem.value?.name || currentSellItem.value?.item?.nameCn || currentSellItem.value?.item?.name || '未知饰品'
+)
+const currentSellItemImage = computed(
+  () => currentSellItem.value?.iconUrl || currentSellItem.value?.item?.iconUrl || '/default-item.svg'
+)
+const currentSellItemSubtitle = computed(() => {
+  if (!currentSellItem.value) return '暂无饰品描述'
+  return getCardDisplaySubtitle(currentSellItem.value) || '暂无饰品描述'
+})
+const currentSellItemRarity = computed(() => {
+  if (!currentSellItem.value) return '未知品质'
+  return getDisplayRarityText(getInventoryRarity(currentSellItem.value)) || '未知品质'
+})
+const currentSellItemExterior = computed(() => {
+  if (!currentSellItem.value) return '未知外观'
+  return getDisplayExterior(currentSellItem.value)
+})
+const currentSellItemWear = computed(() => {
+  if (!currentSellItem.value || !shouldRenderWearPanel(currentSellItem.value)) return ''
+  return getWearDisplay(currentSellItem.value, 6, 2)
+})
 
 const getInventoryRarity = (item) => resolveItemQuality(item)
 const getInventoryExterior = (item) => getItemDisplayModel(item).filterExterior
@@ -375,6 +557,16 @@ const formatDetailValue = (value) => {
   if (value === null || value === undefined) return '-'
   const text = String(value).trim()
   return text || '-'
+}
+
+const roundCurrency = (value) => Math.round(Number(value || 0) * 100) / 100
+
+const normalizeSellPrice = (value, fallback = 0.01) => {
+  const numeric = Number(value)
+  if (!Number.isFinite(numeric)) {
+    return roundCurrency(Math.max(fallback, 0.01))
+  }
+  return roundCurrency(Math.max(numeric, 0.01))
 }
 
 const isMarketableItem = (item) => {
@@ -523,12 +715,24 @@ const normalizeInventory = (payload) => {
   return []
 }
 
+const fetchInventoryAnalysis = async () => {
+  analysisLoading.value = true
+  try {
+    inventoryAnalysis.value = await getInventoryAnalysis()
+  } catch (error) {
+    inventoryAnalysis.value = null
+  } finally {
+    analysisLoading.value = false
+  }
+}
+
 const fetchInventory = async () => {
   loading.value = true
   try {
     const payload = await getInventory()
     inventory.value = normalizeInventory(payload)
     hasLoaded.value = true
+    await fetchInventoryAnalysis()
     if (!selectedInventoryId.value && inventory.value.length) {
       const firstSellable = inventory.value.find((item) => canSellItem(item))
       selectedInventoryId.value = (firstSellable || inventory.value[0]).id
@@ -572,19 +776,41 @@ const handleTopSell = () => {
 
 const openSellDialog = (item) => {
   currentSellItem.value = item
-  sellPrice.value = getInventoryReferencePrice(item) || 0.01
-  sellDialogVisible.value = true
+  sellPrice.value = normalizeSellPrice(getInventoryReferencePrice(item) || 0.01)
+  marketSellDialogVisible.value = true
+}
+
+const applyReferencePrice = () => {
+  sellPrice.value = normalizeSellPrice(sellReferencePrice.value || 0.01)
+}
+
+const handleSellPriceBlur = () => {
+  sellPriceFocused.value = false
+  sellPrice.value = normalizeSellPrice(sellPrice.value, sellReferencePrice.value || 0.01)
+}
+
+const handleSellDialogClosed = () => {
+  sellPriceFocused.value = false
+  currentSellItem.value = null
 }
 
 const confirmSell = async () => {
   if (!currentSellItem.value) return
+  const normalizedPrice = normalizeSellPrice(sellPrice.value, sellReferencePrice.value || 0.01)
+  if (!Number.isFinite(normalizedPrice) || normalizedPrice <= 0) {
+    ElMessage.warning('请输入正确的出售价格')
+    return
+  }
+
+  sellPrice.value = normalizedPrice
   sellLoading.value = true
   try {
     await createSellOrder({
       inventoryId: currentSellItem.value.id,
-      price: sellPrice.value
+      price: normalizedPrice
     })
     ElMessage.success('出售订单创建成功')
+    marketSellDialogVisible.value = false
     sellDialogVisible.value = false
     await fetchInventory()
   } catch (error) {
@@ -616,12 +842,42 @@ watch(
   gap: 20px;
 }
 
+.analysis-overview {
+  display: grid;
+  gap: 16px;
+}
+
+.analysis-overview {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.analysis-card,
 .toolbar-card,
 .content-card {
   border: 1px solid #e4e8f1;
   border-radius: 18px;
   background: #fff;
   box-shadow: 0 14px 36px rgba(15, 23, 42, 0.06);
+}
+
+.analysis-card {
+  padding: 20px 22px;
+}
+
+.analysis-card span {
+  display: block;
+  color: #64748b;
+  font-size: 13px;
+}
+
+.analysis-card strong {
+  color: #0f172a;
+  font-size: 28px;
+  line-height: 1.2;
+}
+
+.analysis-card-accent {
+  background: linear-gradient(135deg, rgba(37, 99, 235, 0.12), rgba(245, 158, 11, 0.14));
 }
 
 .toolbar-card {
@@ -1007,7 +1263,8 @@ watch(
 .price-meta {
   min-width: 0;
   display: flex;
-  align-items: baseline;
+  align-items: center;
+  flex-wrap: wrap;
   gap: 8px;
 }
 
@@ -1017,6 +1274,32 @@ watch(
   font-size: 16px;
   font-weight: 700;
   line-height: 1;
+}
+
+.reference-source-tag {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1.4;
+  white-space: nowrap;
+}
+
+.reference-source-tag-steam {
+  background: rgba(37, 99, 235, 0.12);
+  color: #2563eb;
+}
+
+.reference-source-tag-buff {
+  background: rgba(245, 158, 11, 0.14);
+  color: #b45309;
+}
+
+.reference-source-tag-local {
+  background: rgba(15, 23, 42, 0.08);
+  color: #334155;
 }
 
 .card-status {
@@ -1038,6 +1321,368 @@ watch(
 
 .dialog-name {
   color: #111827;
+}
+
+.market-sell-dialog :deep(.el-dialog) {
+  overflow: hidden;
+  border: 1px solid #d7dee9;
+  border-radius: 8px;
+  background: #fff;
+  box-shadow: 0 28px 80px rgba(15, 23, 42, 0.28);
+}
+
+.market-sell-dialog :deep(.el-dialog__header) {
+  display: none;
+}
+
+.market-sell-dialog :deep(.el-dialog__body) {
+  padding: 0;
+}
+
+.buff-sell-dialog {
+  display: flex;
+  flex-direction: column;
+  min-height: 430px;
+  background: #fff;
+}
+
+.buff-sell-header {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: center;
+  padding: 18px 22px;
+  border-bottom: 1px solid #eef2f6;
+}
+
+.buff-sell-header-side {
+  min-height: 1px;
+}
+
+.buff-sell-title-wrap {
+  text-align: center;
+}
+
+.buff-sell-title {
+  margin: 0;
+  color: #3b4a61;
+  font-size: 24px;
+  font-weight: 700;
+  line-height: 1.2;
+}
+
+.buff-sell-title span {
+  color: #8a94a7;
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.buff-sell-header-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 12px;
+}
+
+.buff-price-sync {
+  height: 34px;
+  padding: 0 16px;
+  border: 1px solid #8da2c5;
+  border-radius: 4px;
+  background: #5b7398;
+  color: #fff;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: opacity 0.2s ease, transform 0.2s ease;
+}
+
+.buff-price-sync:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.buff-price-sync:not(:disabled):hover {
+  transform: translateY(-1px);
+}
+
+.buff-close-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  flex: none;
+  border: 0;
+  background: transparent;
+  color: #9ca3af;
+  font-size: 26px;
+  line-height: 1;
+  cursor: pointer;
+  transition: color 0.2s ease;
+}
+
+.buff-close-button:hover {
+  color: #475569;
+}
+
+.buff-sell-table {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+}
+
+.buff-sell-table-head {
+  display: grid;
+  grid-template-columns: minmax(0, 2.9fr) minmax(120px, 0.95fr) minmax(190px, 1.15fr) minmax(190px, 1.15fr);
+  align-items: center;
+  padding: 0 26px;
+  height: 58px;
+  border-bottom: 1px solid #eef2f6;
+  color: #8f98ab;
+  font-size: 15px;
+  background: #fbfbfc;
+}
+
+.buff-sell-table-row {
+  display: grid;
+  grid-template-columns: minmax(0, 2.9fr) minmax(120px, 0.95fr) minmax(190px, 1.15fr) minmax(190px, 1.15fr);
+  align-items: center;
+  gap: 22px;
+  padding: 22px 26px 28px;
+}
+
+.buff-item-cell {
+  display: grid;
+  grid-template-columns: 104px minmax(0, 1fr);
+  align-items: center;
+  gap: 18px;
+  min-width: 0;
+}
+
+.buff-item-thumb {
+  display: none;
+}
+
+.buff-item-preview {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 104px;
+  height: 78px;
+  padding: 8px;
+  border: 1px solid #e5e7eb;
+  background: linear-gradient(180deg, #727781 0%, #575c66 100%);
+}
+
+.buff-item-preview img {
+  max-width: 88px;
+  max-height: 60px;
+  object-fit: contain;
+  filter: drop-shadow(0 8px 16px rgba(15, 23, 42, 0.24));
+}
+
+.buff-item-copy {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.buff-item-name {
+  margin: 0;
+  color: #2b3443;
+  font-size: 16px;
+  font-weight: 500;
+  line-height: 1.45;
+  word-break: break-word;
+}
+
+.buff-item-subtitle {
+  margin: 0;
+  color: #778296;
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+.buff-item-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 10px;
+  color: #7d8798;
+  font-size: 12px;
+}
+
+.buff-market-cell,
+.buff-input-cell,
+.buff-actual-cell {
+  display: flex;
+  align-items: center;
+}
+
+.buff-market-price {
+  color: #f59e0b;
+  font-size: 24px;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.buff-price-field {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  height: 44px;
+  padding: 0 14px;
+  border: 1px solid #e4e7ed;
+  border-radius: 2px;
+  background: #fff;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.buff-price-field.is-focused {
+  border-color: #b9c5d8;
+  box-shadow: 0 0 0 3px rgba(91, 115, 152, 0.08);
+}
+
+.buff-price-prefix {
+  color: #b8bec8;
+  font-size: 18px;
+  font-weight: 700;
+}
+
+.buff-price-input {
+  width: 100%;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: #374151;
+  font-size: 18px;
+  font-weight: 500;
+}
+
+.buff-price-input::placeholder,
+.buff-price-readonly {
+  color: #b8bec8;
+}
+
+.buff-price-field-readonly {
+  justify-content: flex-start;
+  gap: 8px;
+  background: #fafafa;
+}
+
+.buff-price-readonly {
+  font-size: 18px;
+  font-weight: 500;
+}
+
+.buff-price-input::-webkit-outer-spin-button,
+.buff-price-input::-webkit-inner-spin-button {
+  margin: 0;
+  -webkit-appearance: none;
+}
+
+.buff-price-input[type='number'] {
+  appearance: textfield;
+  -moz-appearance: textfield;
+}
+
+.buff-sell-footer {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 14px 18px;
+  padding: 18px 28px 20px;
+  background: #32353b;
+}
+
+.buff-sell-income {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  min-width: 0;
+}
+
+.buff-sell-income-label {
+  color: #b7bfcb;
+  font-size: 16px;
+}
+
+.buff-sell-income-value {
+  color: #f59e0b;
+  font-size: 40px;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.buff-sell-income-meta {
+  color: #a9b1be;
+  font-size: 14px;
+}
+
+.buff-sell-note {
+  grid-column: 1 / 2;
+  margin: 0;
+  color: #f59e0b;
+  font-size: 14px;
+  line-height: 1.6;
+}
+
+.buff-sell-actions {
+  grid-column: 2 / 3;
+  grid-row: 1 / 3;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.buff-footer-button {
+  min-width: 124px;
+  height: 50px;
+  border: 0;
+  border-radius: 2px;
+  font-size: 18px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: opacity 0.2s ease, transform 0.2s ease;
+}
+
+.buff-footer-button:hover {
+  transform: translateY(-1px);
+}
+
+.buff-footer-button-ghost {
+  background: rgba(255, 255, 255, 0.1);
+  color: #f8fafc;
+}
+
+.buff-footer-button-primary {
+  background: #537bd7;
+  color: #fff;
+}
+
+.buff-footer-button-primary:disabled {
+  cursor: not-allowed;
+  opacity: 0.65;
+}
+
+.buff-col-item,
+.buff-col-market,
+.buff-col-sale,
+.buff-col-actual {
+  display: flex;
+  align-items: center;
+}
+
+.buff-col-market,
+.buff-col-sale,
+.buff-col-actual {
+  justify-content: center;
+}
+
+.buff-market-cell,
+.buff-input-cell,
+.buff-actual-cell {
+  justify-content: center;
 }
 
 .detail-popover {
@@ -1097,6 +1742,10 @@ watch(
 }
 
 @media (max-width: 960px) {
+  .analysis-overview {
+    grid-template-columns: 1fr;
+  }
+
   .toolbar-top,
   .toolbar-filters,
   .toolbar-actions {
@@ -1115,11 +1764,114 @@ watch(
   .items-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
+
+}
+
+@media (max-width: 960px) {
+  .buff-sell-header {
+    grid-template-columns: 1fr;
+    justify-items: center;
+    gap: 12px;
+  }
+
+  .buff-sell-header-side {
+    display: none;
+  }
+
+  .buff-sell-header-actions {
+    width: 100%;
+    justify-content: center;
+  }
+
+  .buff-sell-table-head {
+    display: none;
+  }
+
+  .buff-sell-table-row {
+    grid-template-columns: 1fr;
+    gap: 16px;
+  }
+
+  .buff-item-cell,
+  .buff-market-cell,
+  .buff-input-cell,
+  .buff-actual-cell {
+    justify-content: flex-start;
+  }
+
+  .buff-sell-footer {
+    grid-template-columns: 1fr;
+  }
+
+  .buff-sell-actions {
+    grid-column: auto;
+    grid-row: auto;
+    justify-content: flex-start;
+  }
 }
 
 @media (max-width: 640px) {
   .items-grid {
     grid-template-columns: 1fr;
+  }
+
+  .market-sell-dialog :deep(.el-dialog) {
+    width: min(1060px, calc(100vw - 16px)) !important;
+    margin: 0 auto;
+  }
+
+  .buff-sell-title {
+    font-size: 20px;
+  }
+
+  .buff-sell-table-row {
+    padding: 18px 16px 20px;
+  }
+
+  .buff-item-cell {
+    grid-template-columns: 84px minmax(0, 1fr);
+    gap: 12px;
+  }
+
+  .buff-item-preview {
+    width: 84px;
+    height: 68px;
+  }
+
+  .buff-item-preview img {
+    max-width: 72px;
+    max-height: 50px;
+  }
+
+  .buff-market-price {
+    font-size: 20px;
+  }
+
+  .buff-price-field {
+    height: 42px;
+  }
+
+  .buff-price-input,
+  .buff-price-readonly {
+    font-size: 16px;
+  }
+
+  .buff-sell-income {
+    flex-wrap: wrap;
+    gap: 6px 10px;
+  }
+
+  .buff-sell-income-value {
+    font-size: 30px;
+  }
+
+  .buff-sell-actions {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .buff-footer-button {
+    width: 100%;
   }
 }
 </style>

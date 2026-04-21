@@ -52,6 +52,7 @@ class ItemServiceImplTest {
 
         Item item = itemService.parseSteamItem(payload);
 
+        assertEquals("Sawed-Off | Dry Season (Field-Tested)", item.getSteamMarketHashName());
         assertEquals(new BigDecimal("9.90"), item.getSteamReferencePrice());
         assertEquals("CNY", item.getSteamReferenceCurrency());
         assertEquals("steam_market_search", item.getSteamReferencePriceSource());
@@ -88,6 +89,17 @@ class ItemServiceImplTest {
         latest.setSteamReferencePrice(new BigDecimal("10.50"));
         latest.setSteamReferenceCurrency("CNY");
         latest.setSteamReferencePriceSource("steam_market_search");
+
+        assertTrue(itemService.needsUpdate(existing, latest));
+    }
+
+    @Test
+    void detectsSteamMarketHashNameChanges() {
+        Item existing = baseItem();
+        existing.setSteamMarketHashName("Old Hash Name");
+
+        Item latest = baseItem();
+        latest.setSteamMarketHashName("New Hash Name");
 
         assertTrue(itemService.needsUpdate(existing, latest));
     }

@@ -12,6 +12,8 @@ public interface BuyOrderMapper {
 
     BuyOrder selectById(@Param("id") Long id);
 
+    List<BuyOrder> selectAll();
+
     List<BuyOrder> selectByUserId(@Param("userId") Long userId);
 
     List<BuyOrder> selectActiveByItemId(@Param("itemId") Long itemId);

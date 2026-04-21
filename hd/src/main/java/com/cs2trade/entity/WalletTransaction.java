@@ -61,6 +61,8 @@ public class WalletTransaction implements Serializable {
      */
     private Long relatedOrderId;
 
+    private String orderNo;
+
     /**
      * 关联订单类型
      */

@@ -15,6 +15,26 @@ public class ItemTableInitializer {
 
     @PostConstruct
     public void ensureColumns() {
+        ensureVarcharLength(
+                "item_id",
+                255,
+                "ALTER TABLE item MODIFY COLUMN item_id VARCHAR(255) NOT NULL COMMENT '娓告垙鍐呯墿鍝両D'"
+        );
+        ensureVarcharLength(
+                "icon_url",
+                1024,
+                "ALTER TABLE item MODIFY COLUMN icon_url VARCHAR(1024) DEFAULT NULL COMMENT '楗板搧鍥炬爣URL'"
+        );
+        ensureVarcharLength(
+                "inspect_link_template",
+                1024,
+                "ALTER TABLE item MODIFY COLUMN inspect_link_template VARCHAR(1024) DEFAULT NULL COMMENT '妫€瑙嗛摼鎺ユā鏉?'"
+        );
+        ensureVarcharLength(
+                "steam_market_url",
+                1024,
+                "ALTER TABLE item MODIFY COLUMN steam_market_url VARCHAR(1024) DEFAULT NULL COMMENT 'Steam甯傚満閾炬帴'"
+        );
         addColumnIfMissing(
                 "steam_reference_price",
                 "ALTER TABLE item ADD COLUMN steam_reference_price DECIMAL(18, 2) DEFAULT NULL COMMENT 'Steam reference price' AFTER buff_price"
@@ -31,9 +51,13 @@ public class ItemTableInitializer {
                 "steam_reference_price_updated_at",
                 "ALTER TABLE item ADD COLUMN steam_reference_price_updated_at DATETIME DEFAULT NULL COMMENT 'Steam reference price update time' AFTER steam_reference_price_source"
         );
+        addColumnIfMissing(
+                "steam_market_hash_name",
+                "ALTER TABLE item ADD COLUMN steam_market_hash_name VARCHAR(255) DEFAULT NULL COMMENT 'Canonical Steam market hash name' AFTER steam_market_url"
+        );
 
         backfillLegacyBuffPrice();
-        log.info("item table reference price columns are ready");
+        log.info("item table reference price and Steam market columns are ready");
     }
 
     private void addColumnIfMissing(String columnName, String alterSql) {
@@ -52,6 +76,25 @@ public class ItemTableInitializer {
         if (count == null || count == 0) {
             jdbcTemplate.execute(alterSql);
             log.info("Added column {} to item", columnName);
+        }
+    }
+
+    private void ensureVarcharLength(String columnName, int minLength, String alterSql) {
+        Integer currentLength = jdbcTemplate.queryForObject(
+                """
+                        SELECT CHARACTER_MAXIMUM_LENGTH
+                        FROM information_schema.COLUMNS
+                        WHERE TABLE_SCHEMA = DATABASE()
+                          AND TABLE_NAME = 'item'
+                          AND COLUMN_NAME = ?
+                        """,
+                Integer.class,
+                columnName
+        );
+
+        if (currentLength != null && currentLength < minLength) {
+            jdbcTemplate.execute(alterSql);
+            log.info("Expanded item.{} length from {} to {}", columnName, currentLength, minLength);
         }
     }
 

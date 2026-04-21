@@ -41,6 +41,20 @@ public interface UserInventoryMapper {
      */
     List<UserInventory> selectMarketableByUserId(@Param("userId") Long userId);
 
+    List<UserInventory> selectAllForAdmin(@Param("userId") Long userId,
+                                          @Param("itemId") Long itemId,
+                                          @Param("status") Integer status,
+                                          @Param("isMarketable") Integer isMarketable,
+                                          @Param("keyword") String keyword,
+                                          @Param("offset") Integer offset,
+                                          @Param("size") Integer size);
+
+    long countAllForAdmin(@Param("userId") Long userId,
+                          @Param("itemId") Long itemId,
+                          @Param("status") Integer status,
+                          @Param("isMarketable") Integer isMarketable,
+                          @Param("keyword") String keyword);
+
     /**
      * 根据用户ID和Asset ID查询库存
      *

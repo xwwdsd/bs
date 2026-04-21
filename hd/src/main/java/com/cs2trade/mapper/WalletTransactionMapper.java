@@ -31,7 +31,7 @@ public interface WalletTransactionMapper {
      * @param userId 用户ID
      * @return List<WalletTransaction> 流水列表
      */
-    @Select("SELECT id, user_id, type, amount, balance AS balanceAfter, order_no AS relatedOrderId, remark AS description, created_at FROM wallet_transaction WHERE user_id = #{userId} ORDER BY created_at DESC")
+    @Select("SELECT id, user_id, type, amount, balance AS balanceAfter, CAST(NULL AS SIGNED) AS relatedOrderId, order_no AS orderNo, remark AS description, created_at FROM wallet_transaction WHERE user_id = #{userId} ORDER BY created_at DESC")
     @Results(id = "walletTransactionMap", value = {
         @Result(property = "id", column = "id", id = true),
         @Result(property = "userId", column = "user_id"),
@@ -39,6 +39,7 @@ public interface WalletTransactionMapper {
         @Result(property = "amount", column = "amount"),
         @Result(property = "balanceAfter", column = "balanceAfter"),
         @Result(property = "relatedOrderId", column = "relatedOrderId"),
+        @Result(property = "orderNo", column = "orderNo"),
         @Result(property = "description", column = "description"),
         @Result(property = "createdAt", column = "created_at")
     })
@@ -51,9 +52,45 @@ public interface WalletTransactionMapper {
      * @param type 交易类型
      * @return List<WalletTransaction> 流水列表
      */
-    @Select("SELECT id, user_id, type, amount, balance AS balanceAfter, order_no AS relatedOrderId, remark AS description, created_at FROM wallet_transaction WHERE user_id = #{userId} AND type = #{type} ORDER BY created_at DESC")
+    @Select("SELECT id, user_id, type, amount, balance AS balanceAfter, CAST(NULL AS SIGNED) AS relatedOrderId, order_no AS orderNo, remark AS description, created_at FROM wallet_transaction WHERE user_id = #{userId} AND type = #{type} ORDER BY created_at DESC")
     @ResultMap("walletTransactionMap")
     List<WalletTransaction> selectByUserIdAndType(@Param("userId") Long userId, @Param("type") Integer type);
+
+    @Select("""
+            <script>
+            SELECT id, user_id, type, amount, balance AS balanceAfter,
+                   CAST(NULL AS SIGNED) AS relatedOrderId, order_no AS orderNo, remark AS description, created_at
+            FROM wallet_transaction
+            <where>
+                <if test='userId != null'>AND user_id = #{userId}</if>
+                <if test='type != null'>AND type = #{type}</if>
+                <if test='orderNo != null and orderNo != ""'>AND order_no LIKE CONCAT('%', #{orderNo}, '%')</if>
+            </where>
+            ORDER BY created_at DESC
+            LIMIT #{size} OFFSET #{offset}
+            </script>
+            """)
+    @ResultMap("walletTransactionMap")
+    List<WalletTransaction> selectAllForAdmin(@Param("userId") Long userId,
+                                              @Param("type") Integer type,
+                                              @Param("orderNo") String orderNo,
+                                              @Param("offset") Integer offset,
+                                              @Param("size") Integer size);
+
+    @Select("""
+            <script>
+            SELECT COUNT(*)
+            FROM wallet_transaction
+            <where>
+                <if test='userId != null'>AND user_id = #{userId}</if>
+                <if test='type != null'>AND type = #{type}</if>
+                <if test='orderNo != null and orderNo != ""'>AND order_no LIKE CONCAT('%', #{orderNo}, '%')</if>
+            </where>
+            </script>
+            """)
+    long countAllForAdmin(@Param("userId") Long userId,
+                          @Param("type") Integer type,
+                          @Param("orderNo") String orderNo);
 
     /**
      * 插入新流水

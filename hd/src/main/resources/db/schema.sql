@@ -28,7 +28,7 @@ CREATE TABLE sys_user (
     
     -- 用户基本信息
     username VARCHAR(50) NOT NULL COMMENT '用户名',
-    email VARCHAR(100) NOT NULL COMMENT '邮箱地址',
+    email VARCHAR(100) DEFAULT NULL COMMENT '邮箱地址',
     phone VARCHAR(20) DEFAULT NULL COMMENT '手机号码',
     password VARCHAR(255) NOT NULL COMMENT '密码(BCrypt加密)',
     avatar VARCHAR(255) DEFAULT NULL COMMENT '头像URL',

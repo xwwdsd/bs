@@ -1,4 +1,4 @@
-<template>
+﻿<template>
   <div class="home-page">
     <SiteHeader active="home" @auth-click="showLoginModal = true" />
 
@@ -28,6 +28,7 @@
           </div>
         </div>
       </section>
+
 
       <section class="market-section">
         <div class="section-header">
@@ -104,6 +105,7 @@ import { getActiveBanners } from '@/api/banner'
 import LoginModal from '@/components/LoginModal.vue'
 import SiteHeader from '@/components/SiteHeader.vue'
 import { getItemDisplayModel } from '@/utils/itemDisplay'
+import { resolveItemImageUrl } from '@/utils/itemImage'
 
 const router = useRouter()
 const showLoginModal = ref(false)
@@ -134,7 +136,8 @@ const fetchItems = async () => {
 }
 
 const getItemName = (item) => item.item?.nameCn || item.item?.name || item.inventory?.name || '未知饰品'
-const getItemIcon = (item) => item.inventory?.iconUrl || item.item?.iconUrl || '/default-item.png'
+const getItemIcon = (item) => resolveItemImageUrl(item.inventory?.iconUrl, item.item?.iconUrl)
+
 const getCardDisplayModel = (item) => getItemDisplayModel(item)
 const getCardBadgeText = (item) => getCardDisplayModel(item).primaryBadge.text
 const getCardBadgeClass = (item) => {

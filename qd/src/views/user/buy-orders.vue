@@ -31,7 +31,7 @@
               <div class="item-icons">
                 <span class="icon-badge">求购 #{{ order.id }}</span>
               </div>
-              <img :src="order.item?.iconUrl || '/default-item.png'" :alt="getItemName(order)" />
+              <img :src="order.item?.iconUrl || '/default-item.svg'" :alt="getItemName(order)" />
             </div>
             <div class="card-info">
               <h4 class="card-name">{{ getItemName(order) }}</h4>

@@ -43,6 +43,7 @@ public class ItemServiceImpl implements ItemService {
     private static final String STATUS_FAILED = "FAILED";
     private static final String STEAM_REFERENCE_CURRENCY = "CNY";
     private static final String STEAM_REFERENCE_PRICE_SOURCE = "steam_market_search";
+    private static final String STEAM_IMAGE_URL = "https://steamcommunity-a.akamaihd.net/economy/image/";
     private static final Pattern PRICE_TEXT_PATTERN = Pattern.compile("(\\d+(?:\\.\\d{1,2})?)");
 
     private static final int LEGACY_STEAM_PAGE_SIZE = 10;
@@ -734,6 +735,7 @@ public class ItemServiceImpl implements ItemService {
                 || !Objects.equals(existingItem.getNameCn(), latestItem.getNameCn())
                 || !Objects.equals(existingItem.getIconUrl(), latestItem.getIconUrl())
                 || !Objects.equals(existingItem.getCategory(), latestItem.getCategory())
+                || !Objects.equals(existingItem.getSteamMarketHashName(), latestItem.getSteamMarketHashName())
                 || hasNewSteamReferencePrice(existingItem, latestItem);
     }
 
@@ -757,10 +759,11 @@ public class ItemServiceImpl implements ItemService {
             item.setItemId(hashName != null ? hashName : name);
             item.setName(name);
             item.setNameCn(name);
+            item.setSteamMarketHashName(hashName);
 
             String iconUrl = itemJson.getString("icon_url");
             if (iconUrl != null && !iconUrl.isEmpty()) {
-                item.setIconUrl(iconUrl);
+                item.setIconUrl(normalizeSteamIconUrl(iconUrl));
             } else {
                 String appIcon = itemJson.getString("app_icon");
                 if (appIcon != null && !appIcon.isEmpty()) {
@@ -789,6 +792,20 @@ public class ItemServiceImpl implements ItemService {
             log.error("Parse Steam item failed: {}", e.getMessage(), e);
             return null;
         }
+    }
+
+    private String normalizeSteamIconUrl(String iconUrl) {
+        String normalized = iconUrl == null ? "" : iconUrl.trim();
+        if (normalized.isEmpty()) {
+            return null;
+        }
+        if (normalized.startsWith("http://") || normalized.startsWith("https://")) {
+            return normalized;
+        }
+        if (normalized.startsWith("/")) {
+            return normalized;
+        }
+        return STEAM_IMAGE_URL + normalized;
     }
 
     BigDecimal parseSteamReferencePrice(JSONObject itemJson) {

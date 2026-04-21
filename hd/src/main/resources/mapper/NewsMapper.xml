@@ -72,6 +72,22 @@
         WHERE id = #{id} AND user_id = #{userId}
     </update>
 
+    <update id="updateByAdmin">
+        UPDATE sys_news
+        <set>
+            <if test="title != null">title = #{title},</if>
+            <if test="summary != null">summary = #{summary},</if>
+            <if test="content != null">content = #{content},</if>
+            <if test="coverImage != null">cover_image = #{coverImage},</if>
+            <if test="category != null">category = #{category},</if>
+            <if test="author != null">author = #{author},</if>
+            <if test="source != null">source = #{source},</if>
+            <if test="status != null">status = #{status},</if>
+            reject_reason = #{rejectReason}
+        </set>
+        WHERE id = #{id}
+    </update>
+
     <update id="updateViews">
         UPDATE sys_news SET views = views + 1 WHERE id = #{id}
     </update>

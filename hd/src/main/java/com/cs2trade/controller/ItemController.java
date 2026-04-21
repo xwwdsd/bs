@@ -4,6 +4,9 @@ import com.cs2trade.dto.PageResult;
 import com.cs2trade.dto.Result;
 import com.cs2trade.entity.Item;
 import com.cs2trade.service.ItemService;
+import com.cs2trade.service.MarketAnalyticsService;
+import com.cs2trade.utils.JwtUtils;
+import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -28,7 +31,29 @@ import java.util.Map;
 public class ItemController {
 
     private final ItemService itemService;
+    private final MarketAnalyticsService marketAnalyticsService;
     private final JdbcTemplate jdbcTemplate;
+    private final JwtUtils jwtUtils;
+    private final HttpServletRequest request;
+
+    private Long getOptionalUserId() {
+        String token = request.getHeader("Authorization");
+        if (token == null || token.isBlank()) {
+            return null;
+        }
+        if (token.startsWith("Bearer ")) {
+            token = token.substring(7);
+        }
+        if (token.isBlank()) {
+            return null;
+        }
+
+        try {
+            return jwtUtils.getUserIdFromToken(token);
+        } catch (Exception e) {
+            return null;
+        }
+    }
 
     /**
      * 执行分类数据更新
@@ -165,6 +190,15 @@ public class ItemController {
      *
      * @return Result<List<Item>> 饰品列表
      */
+    @GetMapping("/{id}/market-panel")
+    public Result<?> getMarketPanel(@PathVariable Long id) {
+        Item item = itemService.getItemById(id);
+        if (item == null) {
+            return Result.error(404, "楗板搧涓嶅瓨鍦?");
+        }
+        return Result.success(marketAnalyticsService.getMarketPanel(id));
+    }
+
     @GetMapping("/all")
     public Result<List<Item>> getAllActiveItems() {
         log.info("获取所有启用的饰品");
@@ -248,6 +282,11 @@ public class ItemController {
      * @param item 饰品信息
      * @return Result<Item> 添加后的饰品
      */
+    @GetMapping("/recommendations")
+    public Result<?> getRecommendations(@RequestParam(defaultValue = "8") Integer limit) {
+        return Result.success(marketAnalyticsService.getRecommendations(getOptionalUserId(), limit == null ? 8 : limit));
+    }
+
     @PostMapping
     public Result<Item> addItem(@RequestBody Item item) {
         log.info("添加饰品: name={}", item.getName());

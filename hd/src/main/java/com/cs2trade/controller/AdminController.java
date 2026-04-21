@@ -3,9 +3,7 @@ package com.cs2trade.controller;
 import com.cs2trade.dto.Result;
 import com.cs2trade.entity.*;
 import com.cs2trade.service.AdminService;
-import com.cs2trade.service.SellOrderService;
-import com.cs2trade.utils.JwtUtils;
-import jakarta.servlet.http.HttpServletRequest;
+import com.cs2trade.service.MarketAnalyticsService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.web.bind.annotation.*;
@@ -13,14 +11,6 @@ import org.springframework.web.bind.annotation.*;
 import java.util.List;
 import java.util.Map;
 
-/**
- * 管理员控制器
- * 处理后台管理相关的HTTP请求
- *
- * @author CS2Trade Team
- * @version 1.0
- * @since 2024-03-02
- */
 @Slf4j
 @RestController
 @RequestMapping("/v1/admin")
@@ -28,415 +18,378 @@ import java.util.Map;
 public class AdminController {
 
     private final AdminService adminService;
-    private final SellOrderService sellOrderService;
-    private final JwtUtils jwtUtils;
-    private final HttpServletRequest request;
+    private final MarketAnalyticsService marketAnalyticsService;
 
-    /**
-     * 获取当前登录用户ID
-     */
-    private Long getCurrentUserId() {
-        String token = request.getHeader("Authorization");
-        if (token != null && token.startsWith("Bearer ")) {
-            token = token.substring(7);
-        }
-        return jwtUtils.getUserIdFromToken(token);
-    }
-
-    // ==================== 用户管理 ====================
-
-    /**
-     * 获取用户列表
-     *
-     * @param page 页码
-     * @param size 每页数量
-     * @param keyword 搜索关键词
-     * @param role 角色筛选
-     * @return Result<Map<String, Object>> 用户列表
-     */
     @GetMapping("/users")
-    public Result<Map<String, Object>> getUsers(
-            @RequestParam(defaultValue = "1") Integer page,
-            @RequestParam(defaultValue = "10") Integer size,
-            @RequestParam(required = false) String keyword,
-            @RequestParam(required = false) String role) {
-        log.info("获取用户列表: page={}, size={}, keyword={}, role={}", page, size, keyword, role);
-        Map<String, Object> result = adminService.getUsers(page, size, keyword, role);
-        return Result.success(result);
+    public Result<Map<String, Object>> getUsers(@RequestParam(defaultValue = "1") Integer page,
+                                                @RequestParam(defaultValue = "10") Integer size,
+                                                @RequestParam(required = false) String keyword,
+                                                @RequestParam(required = false) String role,
+                                                @RequestParam(required = false) Integer status) {
+        return Result.success(adminService.getUsers(page, size, keyword, role, status));
     }
 
-    /**
-     * 更新用户信息
-     *
-     * @param userId 用户ID
-     * @param user 用户信息
-     * @return Result<Boolean> 更新结果
-     */
-    @PutMapping("/users/{userId}")
-    public Result<Boolean> updateUser(@PathVariable Long userId, @RequestBody User user) {
-        log.info("更新用户信息: userId={}", userId);
-        user.setId(userId);
-        boolean success = adminService.updateUser(user);
-        return Result.success("更新成功", success);
-    }
-
-    /**
-     * 获取用户详情
-     *
-     * @param userId 用户ID
-     * @return Result<User> 用户信息
-     */
     @GetMapping("/users/{userId}")
     public Result<User> getUserById(@PathVariable Long userId) {
-        log.info("获取用户详情: userId={}", userId);
         User user = adminService.getUserById(userId);
-        if (user == null) {
-            return Result.error("用户不存在");
-        }
-        return Result.success(user);
+        return user == null ? Result.error("用户不存在") : Result.success(user);
     }
 
-    /**
-     * 更新用户状态
-     *
-     * @param userId 用户ID
-     * @param status 状态
-     * @return Result<Boolean> 更新结果
-     */
+    @GetMapping("/users/{userId}/overview")
+    public Result<Map<String, Object>> getUserOverview(@PathVariable Long userId) {
+        return Result.success(adminService.getUserOverview(userId));
+    }
+
+    @PutMapping("/users/{userId}")
+    public Result<Boolean> updateUser(@PathVariable Long userId, @RequestBody User user) {
+        user.setId(userId);
+        return Result.success("更新成功", adminService.updateUser(user));
+    }
+
     @PutMapping("/users/{userId}/status")
     public Result<Boolean> updateUserStatus(@PathVariable Long userId, @RequestParam Integer status) {
-        log.info("更新用户状态: userId={}, status={}", userId, status);
-        boolean success = adminService.updateUserStatus(userId, status);
-        return Result.success("更新成功", success);
+        return Result.success("状态已更新", adminService.updateUserStatus(userId, status));
     }
 
-    /**
-     * 删除用户
-     *
-     * @param userId 用户ID
-     * @return Result<Boolean> 删除结果
-     */
     @DeleteMapping("/users/{userId}")
     public Result<Boolean> deleteUser(@PathVariable Long userId) {
-        log.info("删除用户: userId={}", userId);
-        boolean success = adminService.deleteUser(userId);
-        return Result.success("删除成功", success);
+        return Result.success("删除成功", adminService.deleteUser(userId));
     }
 
-    // ==================== 订单管理 ====================
-
-    /**
-     * 获取所有订单
-     *
-     * @return Result<List<TradeOrder>> 订单列表
-     */
-    @GetMapping("/orders")
-    public Result<List<TradeOrder>> getAllOrders() {
-        log.info("获取所有订单");
-        List<TradeOrder> orders = adminService.getAllOrders();
-        return Result.success(orders);
-    }
-
-    /**
-     * 根据状态获取订单
-     *
-     * @param status 订单状态
-     * @return Result<List<TradeOrder>> 订单列表
-     */
-    @GetMapping("/orders/by-status")
-    public Result<List<TradeOrder>> getOrdersByStatus(@RequestParam Integer status) {
-        log.info("根据状态获取订单: status={}", status);
-        List<TradeOrder> orders = adminService.getOrdersByStatus(status);
-        return Result.success(orders);
-    }
-
-    /**
-     * 取消订单
-     *
-     * @param orderId 订单ID
-     * @return Result<Boolean> 取消结果
-     */
-    @PostMapping("/orders/{orderId}/cancel")
-    public Result<Boolean> cancelOrder(@PathVariable Long orderId) {
-        log.info("取消订单: orderId={}", orderId);
-        boolean success = adminService.cancelOrder(orderId);
-        return Result.success("订单已取消", success);
-    }
-
-    // ==================== 饰品管理 ====================
-
-    /**
-     * 获取所有饰品
-     *
-     * @return Result<List<Item>> 饰品列表
-     */
     @GetMapping("/items")
-    public Result<List<Item>> getAllItems() {
-        log.info("获取所有饰品");
-        List<Item> items = adminService.getAllItems();
-        return Result.success(items);
+    public Result<Map<String, Object>> getItems(@RequestParam(defaultValue = "1") Integer page,
+                                                @RequestParam(defaultValue = "20") Integer size,
+                                                @RequestParam(required = false) String keyword,
+                                                @RequestParam(required = false) String category,
+                                                @RequestParam(required = false) Integer isActive) {
+        return Result.success(adminService.getItems(page, size, keyword, category, isActive));
     }
 
-    /**
-     * 添加饰品
-     *
-     * @param item 饰品信息
-     * @return Result<Item> 添加的饰品
-     */
     @PostMapping("/items")
     public Result<Item> addItem(@RequestBody Item item) {
-        log.info("添加饰品: {}", item.getName());
-        Item newItem = adminService.addItem(item);
-        return Result.success("添加成功", newItem);
+        return Result.success("添加成功", adminService.addItem(item));
     }
 
-    /**
-     * 更新饰品
-     *
-     * @param itemId 饰品ID
-     * @param item 饰品信息
-     * @return Result<Item> 更新的饰品
-     */
     @PutMapping("/items/{itemId}")
     public Result<Item> updateItem(@PathVariable Long itemId, @RequestBody Item item) {
-        log.info("更新饰品: id={}", itemId);
         item.setId(itemId);
-        Item updatedItem = adminService.updateItem(item);
-        return Result.success("更新成功", updatedItem);
+        return Result.success("更新成功", adminService.updateItem(item));
     }
 
-    /**
-     * 删除饰品
-     *
-     * @param itemId 饰品ID
-     * @return Result<Boolean> 删除结果
-     */
     @DeleteMapping("/items/{itemId}")
     public Result<Boolean> deleteItem(@PathVariable Long itemId) {
-        log.info("删除饰品: itemId={}", itemId);
-        boolean success = adminService.deleteItem(itemId);
-        return Result.success("删除成功", success);
+        return Result.success("删除成功", adminService.deleteItem(itemId));
     }
 
-    // ==================== 数据统计 ====================
-
-    /**
-     * 获取统计数据
-     *
-     * @return Result<Map<String, Object>> 统计数据
-     */
-    @GetMapping("/statistics")
-    public Result<Map<String, Object>> getStatistics() {
-        log.info("获取统计数据");
-        Map<String, Object> stats = adminService.getStatistics();
-        return Result.success(stats);
+    @GetMapping("/inventory")
+    public Result<Map<String, Object>> getInventories(@RequestParam(defaultValue = "1") Integer page,
+                                                      @RequestParam(defaultValue = "20") Integer size,
+                                                      @RequestParam(required = false) Long userId,
+                                                      @RequestParam(required = false) Long itemId,
+                                                      @RequestParam(required = false) Integer status,
+                                                      @RequestParam(required = false) Integer isMarketable,
+                                                      @RequestParam(required = false) String keyword) {
+        return Result.success(adminService.getInventories(page, size, userId, itemId, status, isMarketable, keyword));
     }
 
-    /**
-     * 获取交易趋势
-     *
-     * @param days 天数
-     * @return Result<Map<String, Object>> 趋势数据
-     */
-    @GetMapping("/statistics/trade-trend")
-    public Result<Map<String, Object>> getTradeTrend(@RequestParam(defaultValue = "7") Integer days) {
-        log.info("获取交易趋势: days={}", days);
-        Map<String, Object> trend = adminService.getTradeTrend(days);
-        return Result.success(trend);
+    @GetMapping("/inventory/{inventoryId}")
+    public Result<UserInventory> getInventoryById(@PathVariable Long inventoryId) {
+        UserInventory inventory = adminService.getInventoryById(inventoryId);
+        return inventory == null ? Result.error("库存记录不存在") : Result.success(inventory);
     }
 
-    /**
-     * 获取用户增长
-     *
-     * @param days 天数
-     * @return Result<Map<String, Object>> 增长数据
-     */
-    @GetMapping("/statistics/user-growth")
-    public Result<Map<String, Object>> getUserGrowth(@RequestParam(defaultValue = "7") Integer days) {
-        log.info("获取用户增长: days={}", days);
-        Map<String, Object> growth = adminService.getUserGrowth(days);
-        return Result.success(growth);
+    @PutMapping("/inventory/{inventoryId}/item")
+    public Result<Boolean> fixInventoryItemMapping(@PathVariable Long inventoryId, @RequestParam Long itemId) {
+        return Result.success("映射已修复", adminService.fixInventoryItemMapping(inventoryId, itemId));
     }
 
-    // ==================== 资讯管理 ====================
-
-    /**
-     * 获取所有资讯
-     */
-    @GetMapping("/news")
-    public Result<List<News>> getAllNews() {
-        log.info("获取所有资讯");
-        List<News> newsList = adminService.getAllNews();
-        return Result.success(newsList);
+    @DeleteMapping("/inventory/abnormal")
+    public Result<Integer> cleanAbnormalInventories() {
+        return Result.success("清理完成", adminService.cleanAbnormalInventories());
     }
 
-    /**
-     * 审核资讯
-     */
-    @PutMapping("/news/{newsId}/audit")
-    public Result<Boolean> auditNews(@PathVariable Long newsId, @RequestParam Integer status, @RequestParam(required = false) String reason) {
-        log.info("审核资讯: id={}, status={}", newsId, status);
-        boolean success = adminService.auditNews(newsId, status, reason);
-        return Result.success("审核完成", success);
+    @GetMapping("/buy-orders")
+    public Result<Map<String, Object>> getBuyOrders(@RequestParam(defaultValue = "1") Integer page,
+                                                    @RequestParam(defaultValue = "20") Integer size,
+                                                    @RequestParam(required = false) Integer status,
+                                                    @RequestParam(required = false) Long userId,
+                                                    @RequestParam(required = false) String keyword) {
+        return Result.success(adminService.getBuyOrders(page, size, status, userId, keyword));
     }
 
-    /**
-     * 删除资讯
-     */
-    @DeleteMapping("/news/{newsId}")
-    public Result<Boolean> deleteNews(@PathVariable Long newsId) {
-        log.info("删除资讯: id={}", newsId);
-        boolean success = adminService.deleteNews(newsId);
-        return Result.success("删除成功", success);
+    @GetMapping("/buy-orders/{orderId}")
+    public Result<BuyOrder> getBuyOrderById(@PathVariable Long orderId) {
+        BuyOrder order = adminService.getBuyOrderById(orderId);
+        return order == null ? Result.error("求购单不存在") : Result.success(order);
     }
 
-    // ==================== 玩家秀管理 ====================
-
-    /**
-     * 获取所有玩家秀
-     */
-    @GetMapping("/player-shows")
-    public Result<List<PlayerShow>> getAllPlayerShows() {
-        log.info("获取所有玩家秀");
-        List<PlayerShow> shows = adminService.getAllPlayerShows();
-        return Result.success(shows);
+    @PostMapping("/buy-orders/{orderId}/cancel")
+    public Result<Boolean> cancelBuyOrder(@PathVariable Long orderId) {
+        return Result.success("求购单已取消", adminService.cancelBuyOrder(orderId));
     }
 
-    /**
-     * 删除玩家秀
-     */
-    @DeleteMapping("/player-shows/{showId}")
-    public Result<Boolean> deletePlayerShow(@PathVariable Long showId) {
-        log.info("删除玩家秀: id={}", showId);
-        boolean success = adminService.deletePlayerShow(showId);
-        return Result.success("删除成功", success);
+    @PostMapping("/buy-orders/expire")
+    public Result<Integer> expireBuyOrders() {
+        return Result.success("过期处理完成", adminService.expireBuyOrders());
     }
 
-    // ==================== 提现管理 ====================
-
-    /**
-     * 获取提现申请列表
-     */
-    @GetMapping("/withdrawals")
-    public Result<List<Withdrawal>> getWithdrawals(@RequestParam(required = false) Integer status) {
-        log.info("获取提现申请列表: status={}", status);
-        List<Withdrawal> withdrawals = adminService.getWithdrawals(status);
-        return Result.success(withdrawals);
-    }
-
-    /**
-     * 审核提现申请
-     */
-    @PostMapping("/withdrawals/{withdrawalId}/audit")
-    public Result<Boolean> auditWithdrawal(@PathVariable Long withdrawalId, @RequestParam Integer status, @RequestParam(required = false) String reason) {
-        log.info("审核提现申请: id={}, status={}", withdrawalId, status);
-        boolean success = adminService.auditWithdrawal(withdrawalId, status, reason);
-        return Result.success("审核完成", success);
-    }
-
-    // ==================== 数据清理 ====================
-
-    /**
-     * 清理已取消的出售订单
-     */
-    @DeleteMapping("/clean/sell-orders/cancelled")
-    public Result<Integer> cleanCancelledSellOrders() {
-        log.info("清理已取消的出售订单");
-        int count = adminService.cleanCancelledSellOrders();
-        return Result.success("清理完成，共清理" + count + "条数据", count);
-    }
-
-    /**
-     * 清理已取消的交易订单
-     */
-    @DeleteMapping("/clean/trade-orders/cancelled")
-    public Result<Integer> cleanCancelledTradeOrders() {
-        log.info("清理已取消的交易订单");
-        int count = adminService.cleanCancelledTradeOrders();
-        return Result.success("清理完成，共清理" + count + "条数据", count);
-    }
-
-    /**
-     * 清理过期的出售订单
-     */
-    @DeleteMapping("/clean/sell-orders/expired")
-    public Result<Integer> cleanExpiredSellOrders() {
-        log.info("清理过期的出售订单");
-        int count = adminService.cleanExpiredSellOrders();
-        return Result.success("清理完成，共清理" + count + "条数据", count);
-    }
-
-    /**
-     * 清理旧的已完成交易订单
-     */
-    @DeleteMapping("/clean/trade-orders/old-completed")
-    public Result<Integer> cleanOldCompletedOrders(@RequestParam(defaultValue = "30") Integer days) {
-        log.info("清理{}天前的已完成交易订单", days);
-        int count = adminService.cleanOldCompletedOrders(days);
-        return Result.success("清理完成，共清理" + count + "条数据", count);
-    }
-
-    /**
-     * 清理已售出的库存记录
-     */
-    @DeleteMapping("/clean/inventory/sold")
-    public Result<Integer> cleanSoldInventory() {
-        log.info("清理已售出的库存记录");
-        int count = adminService.cleanSoldInventory();
-        return Result.success("清理完成，共清理" + count + "条数据", count);
-    }
-
-    /**
-     * 一键清理所有无用数据
-     */
-    @DeleteMapping("/clean/all")
-    public Result<Map<String, Integer>> cleanAllUselessData() {
-        log.info("一键清理所有无用数据");
-        Map<String, Integer> result = adminService.cleanAllUselessData();
-        return Result.success("清理完成", result);
-    }
-
-    // ==================== 出售订单管理 ====================
-
-    /**
-     * 获取所有出售订单
-     */
     @GetMapping("/sell-orders")
-    public Result<List<SellOrder>> getAllSellOrders(@RequestParam(required = false) Integer status) {
-        log.info("获取出售订单列表: status={}", status);
-        List<SellOrder> orders;
-        if (status != null) {
-            orders = sellOrderService.getSellOrdersByStatus(status);
-        } else {
-            orders = sellOrderService.getAllSellOrders();
-        }
-        return Result.success(orders);
+    public Result<Map<String, Object>> getSellOrders(@RequestParam(defaultValue = "1") Integer page,
+                                                     @RequestParam(defaultValue = "20") Integer size,
+                                                     @RequestParam(required = false) Integer status,
+                                                     @RequestParam(required = false) Long userId,
+                                                     @RequestParam(required = false) String keyword) {
+        return Result.success(adminService.getSellOrders(page, size, status, userId, keyword));
     }
 
-    /**
-     * 获取出售订单详情
-     */
     @GetMapping("/sell-orders/{orderId}")
     public Result<SellOrder> getSellOrderById(@PathVariable Long orderId) {
-        log.info("获取出售订单详情: orderId={}", orderId);
-        SellOrder order = sellOrderService.getOrderById(orderId);
-        if (order == null) {
-            return Result.error("订单不存在");
-        }
-        return Result.success(order);
+        SellOrder order = adminService.getSellOrderById(orderId);
+        return order == null ? Result.error("出售单不存在") : Result.success(order);
     }
 
-    /**
-     * 取消出售订单
-     */
     @PostMapping("/sell-orders/{orderId}/cancel")
     public Result<Boolean> cancelSellOrder(@PathVariable Long orderId) {
-        log.info("管理员取消出售订单: orderId={}", orderId);
-        try {
-            boolean success = sellOrderService.adminCancelSellOrder(orderId);
-            return Result.success("取消成功", success);
-        } catch (RuntimeException e) {
-            return Result.error(e.getMessage());
+        return Result.success("出售单已取消", adminService.cancelSellOrder(orderId));
+    }
+
+    @GetMapping("/orders")
+    public Result<Map<String, Object>> getTradeOrders(@RequestParam(defaultValue = "1") Integer page,
+                                                      @RequestParam(defaultValue = "20") Integer size,
+                                                      @RequestParam(required = false) Integer status,
+                                                      @RequestParam(required = false) Long userId,
+                                                      @RequestParam(required = false) String keyword) {
+        return Result.success(adminService.getTradeOrders(page, size, status, userId, keyword));
+    }
+
+    @GetMapping("/orders/by-status")
+    public Result<List<TradeOrder>> getOrdersByStatus(@RequestParam Integer status) {
+        return Result.success(adminService.getOrdersByStatus(status));
+    }
+
+    @GetMapping("/orders/{orderId}")
+    public Result<TradeOrder> getTradeOrderById(@PathVariable Long orderId) {
+        TradeOrder order = adminService.getOrderById(orderId);
+        return order == null ? Result.error("交易订单不存在") : Result.success(order);
+    }
+
+    @PostMapping("/orders/{orderId}/cancel")
+    public Result<Boolean> cancelOrder(@PathVariable Long orderId) {
+        return Result.success("交易订单已取消", adminService.cancelOrder(orderId));
+    }
+
+    @GetMapping("/wallets")
+    public Result<Map<String, Object>> getWallets(@RequestParam(defaultValue = "1") Integer page,
+                                                  @RequestParam(defaultValue = "20") Integer size,
+                                                  @RequestParam(required = false) Long userId,
+                                                  @RequestParam(required = false) String keyword) {
+        return Result.success(adminService.getWallets(page, size, userId, keyword));
+    }
+
+    @GetMapping("/wallets/{userId}")
+    public Result<Wallet> getWalletByUserId(@PathVariable Long userId) {
+        Wallet wallet = adminService.getWalletByUserId(userId);
+        return wallet == null ? Result.error("钱包不存在") : Result.success(wallet);
+    }
+
+    @GetMapping("/wallet-transactions")
+    public Result<Map<String, Object>> getWalletTransactions(@RequestParam(defaultValue = "1") Integer page,
+                                                             @RequestParam(defaultValue = "20") Integer size,
+                                                             @RequestParam(required = false) Long userId,
+                                                             @RequestParam(required = false) Integer type,
+                                                             @RequestParam(required = false) String orderNo) {
+        return Result.success(adminService.getWalletTransactions(page, size, userId, type, orderNo));
+    }
+
+    @GetMapping("/withdrawals")
+    public Result<Map<String, Object>> getWithdrawals(@RequestParam(defaultValue = "1") Integer page,
+                                                      @RequestParam(defaultValue = "20") Integer size,
+                                                      @RequestParam(required = false) Integer status,
+                                                      @RequestParam(required = false) Long userId,
+                                                      @RequestParam(required = false) String keyword) {
+        return Result.success(adminService.getWithdrawalsPage(page, size, status, userId, keyword));
+    }
+
+    @GetMapping("/withdrawals/{withdrawalId}")
+    public Result<Withdrawal> getWithdrawalById(@PathVariable Long withdrawalId) {
+        Withdrawal withdrawal = adminService.getWithdrawalById(withdrawalId);
+        return withdrawal == null ? Result.error("提现记录不存在") : Result.success(withdrawal);
+    }
+
+    @PostMapping("/withdrawals/{withdrawalId}/audit")
+    public Result<Boolean> auditWithdrawal(@PathVariable Long withdrawalId,
+                                           @RequestParam Integer status,
+                                           @RequestParam(required = false) String reason) {
+        return Result.success("审核完成", adminService.auditWithdrawal(withdrawalId, status, reason));
+    }
+
+    @GetMapping("/favorites")
+    public Result<Map<String, Object>> getFavorites(@RequestParam(defaultValue = "1") Integer page,
+                                                    @RequestParam(defaultValue = "20") Integer size,
+                                                    @RequestParam(required = false) Long userId,
+                                                    @RequestParam(required = false) Integer type,
+                                                    @RequestParam(required = false) Long targetId) {
+        return Result.success(adminService.getFavorites(page, size, userId, type, targetId));
+    }
+
+    @DeleteMapping("/favorites/{favoriteId}")
+    public Result<Boolean> deleteFavorite(@PathVariable Long favoriteId) {
+        return Result.success("收藏记录已删除", adminService.deleteFavorite(favoriteId));
+    }
+
+    @GetMapping("/messages")
+    public Result<Map<String, Object>> getMessages(@RequestParam(defaultValue = "1") Integer page,
+                                                   @RequestParam(defaultValue = "20") Integer size,
+                                                   @RequestParam(required = false) Long userId,
+                                                   @RequestParam(required = false) Integer type,
+                                                   @RequestParam(required = false) Integer status,
+                                                   @RequestParam(required = false) String keyword) {
+        return Result.success(adminService.getMessages(page, size, userId, type, status, keyword));
+    }
+
+    @PostMapping("/messages/{messageId}/read")
+    public Result<Boolean> markMessageRead(@PathVariable Long messageId) {
+        return Result.success("消息已标记为已读", adminService.markMessageRead(messageId));
+    }
+
+    @PostMapping("/messages/batch-delete")
+    public Result<Boolean> deleteMessages(@RequestBody List<Long> ids) {
+        adminService.deleteMessages(ids);
+        return Result.success("消息已删除", true);
+    }
+
+    @PostMapping("/messages/system")
+    public Result<Message> sendSystemMessage(@RequestBody Message message) {
+        return Result.success("消息已发送", adminService.sendSystemMessage(message));
+    }
+
+    @GetMapping("/statistics")
+    public Result<Map<String, Object>> getStatistics() {
+        return Result.success(adminService.getStatistics());
+    }
+
+    @PostMapping("/statistics/rebuild-market-data")
+    public Result<String> rebuildMarketData(@RequestParam(required = false) Long itemId) {
+        if (itemId == null) {
+            marketAnalyticsService.rebuildAllMarketData();
+            return Result.success("行情数据已重建", "all");
         }
+        marketAnalyticsService.rebuildMarketData(itemId);
+        return Result.success("行情数据已重建", String.valueOf(itemId));
+    }
+
+    @GetMapping("/statistics/trade-trend")
+    public Result<Map<String, Object>> getTradeTrend(@RequestParam(defaultValue = "7") Integer days) {
+        return Result.success(adminService.getTradeTrend(days));
+    }
+
+    @GetMapping("/statistics/user-growth")
+    public Result<Map<String, Object>> getUserGrowth(@RequestParam(defaultValue = "7") Integer days) {
+        return Result.success(adminService.getUserGrowth(days));
+    }
+
+    @GetMapping("/news")
+    public Result<List<News>> getAllNews() {
+        return Result.success(adminService.getAllNews());
+    }
+
+    @PostMapping("/news")
+    public Result<News> createNews(@RequestBody News news) {
+        return Result.success("资讯已创建", adminService.createNews(news));
+    }
+
+    @PutMapping("/news/{newsId}")
+    public Result<News> updateNews(@PathVariable Long newsId, @RequestBody News news) {
+        return Result.success("资讯已更新", adminService.updateNews(newsId, news));
+    }
+
+    @PutMapping("/news/{newsId}/audit")
+    public Result<Boolean> auditNews(@PathVariable Long newsId,
+                                     @RequestParam Integer status,
+                                     @RequestParam(required = false) String reason) {
+        return Result.success("审核完成", adminService.auditNews(newsId, status, reason));
+    }
+
+    @DeleteMapping("/news/{newsId}")
+    public Result<Boolean> deleteNews(@PathVariable Long newsId) {
+        return Result.success("资讯已删除", adminService.deleteNews(newsId));
+    }
+
+    @GetMapping("/player-shows")
+    public Result<Map<String, Object>> getPlayerShows(@RequestParam(defaultValue = "1") Integer page,
+                                                      @RequestParam(defaultValue = "20") Integer size,
+                                                      @RequestParam(required = false) Long userId,
+                                                      @RequestParam(required = false) String keyword) {
+        return Result.success(adminService.getPlayerShows(page, size, userId, keyword));
+    }
+
+    @DeleteMapping("/player-shows/{showId}")
+    public Result<Boolean> deletePlayerShow(@PathVariable Long showId) {
+        return Result.success("玩家秀已删除", adminService.deletePlayerShow(showId));
+    }
+
+    @GetMapping("/player-show-comments")
+    public Result<Map<String, Object>> getPlayerShowComments(@RequestParam(defaultValue = "1") Integer page,
+                                                             @RequestParam(defaultValue = "20") Integer size,
+                                                             @RequestParam(required = false) Long showId,
+                                                             @RequestParam(required = false) Long userId,
+                                                             @RequestParam(required = false) String keyword) {
+        return Result.success(adminService.getPlayerShowComments(page, size, showId, userId, keyword));
+    }
+
+    @DeleteMapping("/player-show-comments/{commentId}")
+    public Result<Boolean> deletePlayerShowComment(@PathVariable Long commentId) {
+        return Result.success("评论已删除", adminService.deletePlayerShowComment(commentId));
+    }
+
+    @GetMapping("/player-show-likes")
+    public Result<Map<String, Object>> getPlayerShowLikes(@RequestParam(defaultValue = "1") Integer page,
+                                                          @RequestParam(defaultValue = "20") Integer size,
+                                                          @RequestParam(required = false) Long showId,
+                                                          @RequestParam(required = false) Long userId) {
+        return Result.success(adminService.getPlayerShowLikes(page, size, showId, userId));
+    }
+
+    @GetMapping("/sync/tasks")
+    public Result<Map<String, Object>> getSteamSyncTasks(@RequestParam(defaultValue = "1") Integer page,
+                                                         @RequestParam(defaultValue = "20") Integer size,
+                                                         @RequestParam(required = false) String taskType,
+                                                         @RequestParam(required = false) String status) {
+        return Result.success(adminService.getSteamSyncTasks(page, size, taskType, status));
+    }
+
+    @GetMapping("/sync/tasks/latest")
+    public Result<SteamSyncTask> getLatestSteamSyncTask(@RequestParam String taskType) {
+        return Result.success(adminService.getLatestSteamSyncTask(taskType));
+    }
+
+    @DeleteMapping("/clean/sell-orders/cancelled")
+    public Result<Integer> cleanCancelledSellOrders() {
+        return Result.success("清理完成", adminService.cleanCancelledSellOrders());
+    }
+
+    @DeleteMapping("/clean/trade-orders/cancelled")
+    public Result<Integer> cleanCancelledTradeOrders() {
+        return Result.success("清理完成", adminService.cleanCancelledTradeOrders());
+    }
+
+    @DeleteMapping("/clean/sell-orders/expired")
+    public Result<Integer> cleanExpiredSellOrders() {
+        return Result.success("清理完成", adminService.cleanExpiredSellOrders());
+    }
+
+    @DeleteMapping("/clean/trade-orders/old-completed")
+    public Result<Integer> cleanOldCompletedOrders(@RequestParam(defaultValue = "30") Integer days) {
+        return Result.success("清理完成", adminService.cleanOldCompletedOrders(days));
+    }
+
+    @DeleteMapping("/clean/inventory/sold")
+    public Result<Integer> cleanSoldInventory() {
+        return Result.success("清理完成", adminService.cleanSoldInventory());
+    }
+
+    @DeleteMapping("/clean/all")
+    public Result<Map<String, Integer>> cleanAllUselessData() {
+        return Result.success("清理完成", adminService.cleanAllUselessData());
     }
 }

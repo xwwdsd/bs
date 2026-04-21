@@ -11,7 +11,7 @@
           <el-avatar :size="48" :src="userStore.userInfo?.avatar" />
         </div>
         <div class="action">
-          <el-button type="primary" link @click="showEditDialog = true">修改头像</el-button>
+          <el-button type="primary" link @click="openEditDialog">修改头像</el-button>
         </div>
       </div>
 
@@ -19,13 +19,26 @@
         <div class="label">昵称</div>
         <div class="content">{{ userStore.userInfo?.username }}</div>
         <div class="action">
-          <el-button type="primary" link @click="showEditDialog = true">修改昵称</el-button>
+          <el-button type="primary" link @click="openEditDialog">修改昵称</el-button>
         </div>
       </div>
     </div>
 
     <div class="settings-group">
       <div class="group-title">账号安全</div>
+
+      <div class="setting-item">
+        <div class="label">邮箱</div>
+        <div class="content">
+          <span v-if="userStore.userInfo?.email">{{ userStore.userInfo.email }}</span>
+          <span v-else class="text-gray">未绑定</span>
+        </div>
+        <div class="action">
+          <el-button type="primary" class="small-btn" @click="openEditDialog">
+            {{ userStore.userInfo?.email ? '修改邮箱' : '补充邮箱' }}
+          </el-button>
+        </div>
+      </div>
 
       <!-- 手机账号模块 -->
       <div class="setting-item">
@@ -163,6 +176,9 @@
       <el-form :model="editForm" label-width="80px">
         <el-form-item label="用户名">
           <el-input v-model="editForm.username" />
+        </el-form-item>
+        <el-form-item label="邮箱">
+          <el-input v-model="editForm.email" placeholder="选填，用于登录和找回密码" />
         </el-form-item>
         <el-form-item label="头像">
           <el-upload 
@@ -327,7 +343,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted, computed } from 'vue'
+import { ref, onMounted, watch } from 'vue'
 import { useUserStore } from '@/stores/user'
 import { CircleCheckFilled, Plus, WarningFilled, Lock, InfoFilled } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
@@ -354,8 +370,21 @@ const realNameInfo = ref('')
 
 const editForm = ref({
   username: userStore.userInfo?.username || '',
+  email: userStore.userInfo?.email || '',
   avatar: userStore.userInfo?.avatar || ''
 })
+
+const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+
+watch(
+  () => userStore.userInfo,
+  (userInfo) => {
+    editForm.value.username = userInfo?.username || ''
+    editForm.value.email = userInfo?.email || ''
+    editForm.value.avatar = userInfo?.avatar || ''
+  },
+  { immediate: true }
+)
 
 const phoneForm = ref({
   phone: '',
@@ -393,6 +422,13 @@ const bankForm = ref({
 const maskPhone = (phone) => {
   if (!phone) return ''
   return phone.replace(/(\d{3})\d{4}(\d{4})/, '$1****$2')
+}
+
+const openEditDialog = () => {
+  editForm.value.username = userStore.userInfo?.username || ''
+  editForm.value.email = userStore.userInfo?.email || ''
+  editForm.value.avatar = userStore.userInfo?.avatar || ''
+  showEditDialog.value = true
 }
 
 const fetchUserAccounts = async () => {
@@ -452,16 +488,23 @@ const uploadAvatar = async (options) => {
 }
 
 const handleSaveProfile = async () => {
+  const email = editForm.value.email.trim()
+  if (email && !emailPattern.test(email)) {
+    ElMessage.warning('请输入正确的邮箱地址')
+    return
+  }
+
   try {
     await request.post('/v1/user/update', {
       nickname: editForm.value.username,
-      avatar: editForm.value.avatar
+      avatar: editForm.value.avatar,
+      ...(email ? { email } : {})
     })
     ElMessage.success('保存成功')
     showEditDialog.value = false
-    userStore.getUserInfo()
+    await userStore.getUserInfo()
   } catch (error) {
-    ElMessage.error('保存失败')
+    ElMessage.error(error.message || '保存失败')
   }
 }
 
