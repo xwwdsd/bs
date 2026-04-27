@@ -383,7 +383,16 @@ const selectMarketPanel = (panel) => {
 }
 
 const currentUserId = computed(() => userStore.userInfo?.userId || userStore.userInfo?.id || null)
-const displaySource = computed(() => selectedOrder.value || (itemDetail.value ? { item: itemDetail.value } : null))
+const displaySource = computed(() => {
+  if (selectedOrder.value) {
+    return {
+      ...selectedOrder.value,
+      item: itemDetail.value || selectedOrder.value.item || null
+    }
+  }
+
+  return itemDetail.value ? { item: itemDetail.value } : null
+})
 const displayModel = computed(() => getItemDisplayModel(displaySource.value))
 const displayName = computed(() => getItemName(displaySource.value))
 const displayIcon = computed(() => getItemIcon(displaySource.value))

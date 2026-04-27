@@ -40,6 +40,14 @@
     <el-dialog v-model="sendVisible" title="发送系统消息" width="520px">
       <el-form :model="messageForm" label-width="90px">
         <el-form-item label="用户编号"><el-input-number v-model="messageForm.userId" :min="1" /></el-form-item>
+        <el-form-item label="消息类型">
+          <el-select v-model="messageForm.subType" placeholder="选择系统消息类型">
+            <el-option label="重要" :value="1" />
+            <el-option label="活动" :value="2" />
+            <el-option label="通知" :value="3" />
+            <el-option label="公告" :value="4" />
+          </el-select>
+        </el-form-item>
         <el-form-item label="标题"><el-input v-model="messageForm.title" /></el-form-item>
         <el-form-item label="内容"><el-input v-model="messageForm.content" type="textarea" :rows="4" /></el-form-item>
       </el-form>
@@ -63,7 +71,7 @@ const total = ref(0)
 const selected = ref([])
 const sendVisible = ref(false)
 const query = reactive({ page: 1, size: 20, keyword: '', userId: null, type: null, status: null })
-const messageForm = reactive({ userId: null, title: '', content: '' })
+const messageForm = reactive({ userId: null, subType: 3, title: '', content: '' })
 const typeText = (type) => ({ 1: '交易消息', 2: '系统消息', 3: '还价消息' }[type] || '未知')
 
 const loadData = async () => {
@@ -90,7 +98,7 @@ const sendMessage = async () => {
   await sendSystemMessage(messageForm)
   ElMessage.success('发送成功')
   sendVisible.value = false
-  Object.assign(messageForm, { userId: null, title: '', content: '' })
+  Object.assign(messageForm, { userId: null, subType: 3, title: '', content: '' })
   loadData()
 }
 onMounted(loadData)

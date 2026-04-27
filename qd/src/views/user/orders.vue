@@ -73,12 +73,20 @@
                 </el-button>
 
                 <el-button
-                  v-if="orderType === 'sell' && order.status === 2"
+                  v-if="orderType === 'buy' && order.status === 2 && order.seller?.steamTradeUrl"
+                  :loading="shipping"
+                  @click="openSellerTradeUrl(order)"
+                >
+                  打开并自动选择饰品
+                </el-button>
+
+                <el-button
+                  v-if="orderType === 'buy' && order.status === 2"
                   type="primary"
                   :loading="shipping"
-                  @click="handleShip(order)"
+                  @click="handleDetectOffer(order)"
                 >
-                  立即检测
+                  检测报价
                 </el-button>
 
                 <el-button v-if="order.status === 1" :loading="loading" @click="handleBotCheck(order)">立即检测</el-button>
@@ -107,7 +115,7 @@
           <p>状态：{{ getStatusText(currentOrder.status) }}</p>
           <p>创建时间：{{ formatDate(currentOrder.createdAt) }}</p>
           <p v-if="currentOrder.paidAt">支付时间：{{ formatDate(currentOrder.paidAt) }}</p>
-          <p v-if="currentOrder.sentAt">发货时间：{{ formatDate(currentOrder.sentAt) }}</p>
+          <p v-if="currentOrder.sentAt">报价检测时间：{{ formatDate(currentOrder.sentAt) }}</p>
           <p v-if="currentOrder.completedAt">完成时间：{{ formatDate(currentOrder.completedAt) }}</p>
         </div>
 
@@ -118,6 +126,10 @@
           <p>手续费：¥ {{ formatPrice(currentOrder.fee) }}</p>
           <p>Steam 报价状态：{{ currentOrder.steamOfferStateText || '-' }}</p>
           <p v-if="currentOrder.monitorErrorMessage">检测备注：{{ currentOrder.monitorErrorMessage }}</p>
+          <p v-if="currentOrder.status === 2 && currentOrder.seller?.steamTradeUrl">
+            卖家报价链接：
+            <a :href="buildPrefilledTradeUrl(currentOrder)" target="_blank" rel="noreferrer">打开链接</a>
+          </p>
           <p v-if="currentOrder.tradeOfferId">报价 ID：{{ currentOrder.tradeOfferId }}</p>
           <p v-if="currentOrder.tradeOfferUrl">
             报价链接：
@@ -154,6 +166,35 @@ const shipping = ref(false)
 
 const detailDialogVisible = ref(false)
 const currentOrder = ref(null)
+
+const STEAM_CSGO_APP_ID = '730'
+const STEAM_CSGO_CONTEXT_ID = '2'
+
+const getTradeOfferAssetId = (order) => String(order?.inventory?.assetId || order?.assetId || '').trim()
+
+const buildPrefilledTradeUrl = (order) => {
+  const baseUrl = order?.seller?.steamTradeUrl
+  const assetId = getTradeOfferAssetId(order)
+  if (!baseUrl || !assetId) {
+    return baseUrl
+  }
+
+  const forItem = `${STEAM_CSGO_APP_ID}_${STEAM_CSGO_CONTEXT_ID}_${assetId}`
+  try {
+    const url = new URL(baseUrl)
+    url.searchParams.set('for_item', forItem)
+    url.searchParams.set('cs2trade_order_id', order.id)
+    return url.toString()
+  } catch (error) {
+    const [withoutHash, hash = ''] = String(baseUrl).split('#')
+    const separator = withoutHash.includes('?') ? '&' : '?'
+    const extraParams = new URLSearchParams({
+      for_item: forItem,
+      cs2trade_order_id: String(order.id)
+    })
+    return `${withoutHash}${separator}${extraParams.toString()}${hash ? `#${hash}` : ''}`
+  }
+}
 
 const getOrderExteriorText = (order) => {
   const exterior = resolveExteriorCode(
@@ -216,7 +257,19 @@ const handlePay = async (order) => {
   }
 }
 
-const handleShip = async (order) => {
+const openSellerTradeUrl = (order) => {
+  const url = buildPrefilledTradeUrl(order)
+  if (!url) {
+    ElMessage.warning('卖家暂未配置 Steam 报价链接')
+    return
+  }
+  if (!getTradeOfferAssetId(order)) {
+    ElMessage.warning('当前订单缺少 Steam Asset ID，将打开普通报价链接')
+  }
+  window.open(url, '_blank', 'noreferrer')
+}
+
+const handleDetectOffer = async (order) => {
   if (!order?.id) {
     ElMessage.warning('暂未找到对应的交易订单，请稍后刷新重试')
     return
@@ -224,11 +277,11 @@ const handleShip = async (order) => {
 
   shipping.value = true
   try {
-    await request.post(`/v1/order/${order.id}/ship`, {})
-    ElMessage.success('已触发系统自动检测卖家发货')
+    await request.post(`/v1/order/${order.id}/buyer-offer/detect`, {})
+    ElMessage.success('已触发系统检测你发出的报价')
     fetchOrders()
   } catch (error) {
-    ElMessage.error(error?.response?.data?.message || error?.message || '自动检测发货失败')
+    ElMessage.error(error?.response?.data?.message || error?.message || '检测报价失败')
   } finally {
     shipping.value = false
   }
@@ -309,7 +362,7 @@ const getStatusText = (status) => {
   const map = {
     0: '待支付',
     1: '报价中',
-    2: '待发货',
+    2: orderType.value === 'buy' ? '待发送报价' : '等待买家报价',
     3: '待收货',
     4: '已完成',
     5: '已取消',

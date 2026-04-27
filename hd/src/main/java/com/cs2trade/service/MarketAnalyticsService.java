@@ -12,7 +12,7 @@ public interface MarketAnalyticsService {
 
     InventoryAnalysis getInventoryAnalysis(Long userId);
 
-    List<ItemRecommendation> getRecommendations(Long userId, int limit);
+    List<ItemRecommendation> getRecommendations(Long userId, Long currentItemId, int limit);
 
     void rebuildMarketData(Long itemId);
 

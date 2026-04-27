@@ -228,13 +228,24 @@ public class SteamApiClient {
     }
 
     public SteamMarketPageResult getCsgoItems(int start, int count) {
+        return requestCsgoMarketSearch("", start, count);
+    }
+
+    public SteamMarketPageResult searchCsgoItems(String query, int count) {
+        return requestCsgoMarketSearch(query, 0, count);
+    }
+
+    private SteamMarketPageResult requestCsgoMarketSearch(String query, int start, int count) {
+        String encodedQuery = URLEncoder.encode(query == null ? "" : query, StandardCharsets.UTF_8)
+                .replace("+", "%20");
         String url = String.format(
-                "https://steamcommunity.com/market/search/render/?query=&start=%d&count=%d&search_descriptions=1&sort_column=name&sort_dir=asc&appid=730&norender=1&currency=23&country=CN&l=schinese",
+                "https://steamcommunity.com/market/search/render/?query=%s&start=%d&count=%d&search_descriptions=1&sort_column=name&sort_dir=asc&appid=730&norender=1&currency=23&country=CN&l=schinese",
+                encodedQuery,
                 start,
                 count
         );
-        log.info("Request Steam market page: start={}, count={}, proxyEnabled={}, proxyType={}, proxyHost={}, proxyPort={}",
-                start, count, proxyEnabled, proxyType, proxyHost, proxyPort);
+        log.info("Request Steam market page: query={}, start={}, count={}, proxyEnabled={}, proxyType={}, proxyHost={}, proxyPort={}",
+                query, start, count, proxyEnabled, proxyType, proxyHost, proxyPort);
 
         Request request = new Request.Builder()
                 .url(url)
@@ -267,7 +278,8 @@ public class SteamApiClient {
 
             return SteamMarketPageResult.failure(statusCode, "Steam market request failed with HTTP " + statusCode);
         } catch (Exception e) {
-            log.error("Steam market request failed: start={}, count={}, message={}", start, count, e.getMessage(), e);
+            log.error("Steam market request failed: query={}, start={}, count={}, message={}",
+                    query, start, count, e.getMessage(), e);
             return SteamMarketPageResult.failure(0, e.getMessage());
         }
     }

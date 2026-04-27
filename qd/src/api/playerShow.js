@@ -1,7 +1,11 @@
-import { get, post, del } from '@/utils/request'
+import { get, post, put, del } from '@/utils/request'
 
 export function getPlayerShows() {
   return get('/v1/player-shows')
+}
+
+export function getPlayerShowById(id) {
+  return get(`/v1/player-shows/${id}`)
 }
 
 export function getMyPlayerShows() {
@@ -10,6 +14,10 @@ export function getMyPlayerShows() {
 
 export function createPlayerShow(data) {
   return post('/v1/player-shows', data)
+}
+
+export function updatePlayerShow(id, data) {
+  return put(`/v1/player-shows/${id}`, data)
 }
 
 export function likePlayerShow(id) {

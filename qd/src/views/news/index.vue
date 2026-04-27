@@ -20,12 +20,21 @@
             </button>
           </div>
           <div class="toolbar-right">
-            <el-button type="primary" @click="postDialogVisible = true">文章投稿</el-button>
+            <el-button v-if="userStore.isLoggedIn" @click="goToMySubmissions">我的投稿</el-button>
+            <el-button type="primary" @click="openPostDialog">文章投稿</el-button>
           </div>
         </div>
 
         <div class="news-list" v-loading="loading">
-          <article v-for="item in filteredNews" :key="item.id" class="news-item">
+          <article
+            v-for="item in filteredNews"
+            :key="item.id"
+            class="news-item"
+            role="button"
+            tabindex="0"
+            @click="goToNewsDetail(item)"
+            @keydown.enter="goToNewsDetail(item)"
+          >
             <div class="news-cover">
               <img :src="item.coverImage || defaultCover" :alt="item.title" />
             </div>
@@ -49,7 +58,7 @@
                 class="favorite-news-button"
                 :class="{ active: favoriteIds.has(item.id) }"
                 type="button"
-                @click="handleFavorite(item)"
+                @click.stop="handleFavorite(item)"
               >
                 <el-icon>
                   <StarFilled v-if="favoriteIds.has(item.id)" />
@@ -65,10 +74,24 @@
       </section>
     </main>
 
-    <el-dialog v-model="postDialogVisible" title="文章投稿" width="600px">
+    <el-dialog v-model="postDialogVisible" title="文章投稿" width="600px" @closed="resetPostForm">
+      <div class="post-dialog-tip">
+        投稿成功后可以在“我的投稿”里查看审核状态，也可以继续修改自己的文章。
+      </div>
+
       <el-form :model="postForm" label-width="80px">
         <el-form-item label="标题">
           <el-input v-model="postForm.title" placeholder="请输入文章标题" />
+        </el-form-item>
+
+        <el-form-item label="封面">
+          <AdminImageUpload
+            v-model="postForm.coverImage"
+            :width="220"
+            :height="132"
+            tip="建议上传文章封面，资讯列表会直接展示缩略图"
+            button-text="上传封面"
+          />
         </el-form-item>
 
         <el-form-item label="摘要">
@@ -99,13 +122,16 @@
 import { computed, onMounted, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import { Star, StarFilled } from '@element-plus/icons-vue'
+import { useRouter } from 'vue-router'
 import { useUserStore } from '@/stores/user'
 import { getNews, createNews } from '@/api/news'
 import { addFavorite, checkFavorite, removeFavorite } from '@/api/favorite'
+import AdminImageUpload from '@/components/admin/AdminImageUpload.vue'
 import LoginModal from '@/components/LoginModal.vue'
 import SiteHeader from '@/components/SiteHeader.vue'
 
 const defaultCover = 'https://dummyimage.com/320x180/e5e7eb/6b7280&text=NEWS'
+const router = useRouter()
 const userStore = useUserStore()
 
 const showLoginModal = ref(false)
@@ -118,6 +144,7 @@ const submitting = ref(false)
 
 const postForm = ref({
   title: '',
+  coverImage: '',
   summary: '',
   content: '',
   category: 'CS2'
@@ -166,6 +193,34 @@ const setCategory = (category) => {
   fetchNews()
 }
 
+const resetPostForm = () => {
+  postForm.value = {
+    title: '',
+    coverImage: '',
+    summary: '',
+    content: '',
+    category: 'CS2'
+  }
+}
+
+const openPostDialog = () => {
+  if (!userStore.isLoggedIn) {
+    showLoginModal.value = true
+    return
+  }
+
+  postDialogVisible.value = true
+}
+
+const goToMySubmissions = () => {
+  router.push('/user/submissions')
+}
+
+const goToNewsDetail = (item) => {
+  if (!item?.id) return
+  router.push({ name: 'NewsDetail', params: { id: item.id } })
+}
+
 const handleFavorite = async (item) => {
   if (!userStore.isLoggedIn) {
     showLoginModal.value = true
@@ -190,6 +245,11 @@ const handleFavorite = async (item) => {
 }
 
 const handleSubmitPost = async () => {
+  if (!userStore.isLoggedIn) {
+    showLoginModal.value = true
+    return
+  }
+
   if (!postForm.value.title || !postForm.value.content) {
     ElMessage.warning('请先填写标题和内容')
     return
@@ -198,14 +258,9 @@ const handleSubmitPost = async () => {
   submitting.value = true
   try {
     await createNews(postForm.value)
-    ElMessage.success('投稿成功')
+    ElMessage.success('投稿成功，可在“我的投稿”中继续修改')
     postDialogVisible.value = false
-    postForm.value = {
-      title: '',
-      summary: '',
-      content: '',
-      category: 'CS2'
-    }
+    resetPostForm()
     fetchNews()
   } catch (error) {
     ElMessage.error(error?.message || '投稿失败')
@@ -280,6 +335,9 @@ onMounted(() => {
 }
 
 .toolbar-right {
+  display: flex;
+  align-items: center;
+  gap: 12px;
   padding-right: 24px;
 }
 
@@ -293,6 +351,12 @@ onMounted(() => {
   gap: 20px;
   padding: 18px 0;
   border-bottom: 1px solid #eff2f6;
+  cursor: pointer;
+  transition: transform 0.18s ease, box-shadow 0.18s ease;
+}
+
+.news-item:hover {
+  transform: translateY(-1px);
 }
 
 .news-cover img {
@@ -381,10 +445,25 @@ onMounted(() => {
   font-size: 15px;
 }
 
+.post-dialog-tip {
+  margin-bottom: 16px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: #eff6ff;
+  color: #1d4ed8;
+  font-size: 13px;
+  line-height: 1.6;
+}
+
 @media (max-width: 900px) {
   .section-header {
     flex-direction: column;
     align-items: stretch;
+  }
+
+  .toolbar-right {
+    padding: 0 24px 18px;
+    justify-content: flex-end;
   }
 
   .news-item {

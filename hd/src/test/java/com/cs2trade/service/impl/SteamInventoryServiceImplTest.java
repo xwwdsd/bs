@@ -23,6 +23,7 @@ import java.util.List;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -131,6 +132,85 @@ class SteamInventoryServiceImplTest {
     }
 
     @Test
+    void syncInventoryBackfillsFallbackItemIconAndHashName() {
+        User user = baseUser();
+
+        Item item = new Item();
+        item.setId(1750L);
+        item.setItemId("StatTrak? CZ75-Auto | Yellow Jacket (Minimal Wear)");
+        item.setName("StatTrak? CZ75-Auto | Yellow Jacket (Minimal Wear)");
+        item.setIconUrl("https://cdn.akamai.steamstatic.com/steamcommunity/public/images/apps/730/app-icon.jpg");
+        item.setSteamReferencePrice(new BigDecimal("23.84"));
+
+        JSONObject payload = inventoryPayload(
+                "asset-1",
+                "StatTrak™ CZ75-Auto | Yellow Jacket (Minimal Wear)",
+                "StatTrak™ CZ75-Auto | Yellow Jacket (Minimal Wear)",
+                "small-icon",
+                "large-icon"
+        );
+
+        when(userMapper.selectById(1L)).thenReturn(user);
+        when(steamApiClient.getInventory("steam-64")).thenReturn(payload);
+        when(itemMapper.selectAllActive()).thenReturn(List.of(item));
+        when(userInventoryMapper.selectByUserId(1L)).thenReturn(List.of(), List.of());
+        when(userInventoryMapper.deleteUnreferencedByUserId(1L)).thenReturn(0);
+
+        steamInventoryService.syncInventory(1L);
+
+        ArgumentCaptor<Item> itemCaptor = ArgumentCaptor.forClass(Item.class);
+        verify(itemMapper).updateById(itemCaptor.capture());
+        Item updated = itemCaptor.getValue();
+        assertEquals(1750L, updated.getId());
+        assertEquals("StatTrak™ CZ75-Auto | Yellow Jacket (Minimal Wear)", updated.getSteamMarketHashName());
+        assertEquals(
+                "https://steamcommunity.com/market/listings/730/StatTrak%E2%84%A2%20CZ75-Auto%20%7C%20Yellow%20Jacket%20%28Minimal%20Wear%29",
+                updated.getSteamMarketUrl()
+        );
+        assertEquals("https://steamcommunity-a.akamaihd.net/economy/image/large-icon", updated.getIconUrl());
+
+        ArgumentCaptor<UserInventory> inventoryCaptor = ArgumentCaptor.forClass(UserInventory.class);
+        verify(userInventoryMapper).insert(inventoryCaptor.capture());
+        assertEquals(1750L, inventoryCaptor.getValue().getItemId());
+    }
+
+    @Test
+    void syncInventoryDoesNotOverwriteExistingRealItemIcon() {
+        User user = baseUser();
+
+        Item item = new Item();
+        item.setId(5271L);
+        item.setItemId("P250 | Kintsugi (Minimal Wear)");
+        item.setName("P250 | Kintsugi (Minimal Wear)");
+        item.setSteamMarketHashName("P250 | Kintsugi (Minimal Wear)");
+        item.setSteamMarketUrl("https://steamcommunity.com/market/listings/730/P250%20%7C%20Kintsugi%20%28Minimal%20Wear%29");
+        item.setIconUrl("https://steamcommunity-a.akamaihd.net/economy/image/existing-real-icon");
+        item.setSteamReferencePrice(new BigDecimal("23.98"));
+
+        JSONObject payload = inventoryPayload(
+                "asset-1",
+                "P250 | Kintsugi (Minimal Wear)",
+                "P250 | Kintsugi (Minimal Wear)",
+                "small-icon",
+                "large-icon"
+        );
+
+        when(userMapper.selectById(1L)).thenReturn(user);
+        when(steamApiClient.getInventory("steam-64")).thenReturn(payload);
+        when(itemMapper.selectAllActive()).thenReturn(List.of(item));
+        when(userInventoryMapper.selectByUserId(1L)).thenReturn(List.of(), List.of());
+        when(userInventoryMapper.deleteUnreferencedByUserId(1L)).thenReturn(0);
+
+        steamInventoryService.syncInventory(1L);
+
+        verify(itemMapper, never()).updateById(any(Item.class));
+
+        ArgumentCaptor<UserInventory> inventoryCaptor = ArgumentCaptor.forClass(UserInventory.class);
+        verify(userInventoryMapper).insert(inventoryCaptor.capture());
+        assertEquals(5271L, inventoryCaptor.getValue().getItemId());
+    }
+
+    @Test
     void syncInventoryFallsBackToUnknownItemWhenInventoryBackedItemCreationFails() {
         User user = new User();
         user.setId(1L);
@@ -186,5 +266,43 @@ class SteamInventoryServiceImplTest {
         assertEquals(999L, inserted.getItemId());
         assertEquals(1, synced.size());
         assertEquals(999L, synced.get(0).getItemId());
+    }
+
+    private User baseUser() {
+        User user = new User();
+        user.setId(1L);
+        user.setSteamId("steam-64");
+        return user;
+    }
+
+    private JSONObject inventoryPayload(String assetId,
+                                        String marketHashName,
+                                        String displayName,
+                                        String iconUrl,
+                                        String iconUrlLarge) {
+        JSONObject asset = new JSONObject();
+        asset.put("assetid", assetId);
+        asset.put("classid", "class-1");
+        asset.put("instanceid", "instance-1");
+
+        JSONObject description = new JSONObject();
+        description.put("classid", "class-1");
+        description.put("instanceid", "instance-1");
+        description.put("market_hash_name", marketHashName);
+        description.put("name", displayName);
+        description.put("icon_url", iconUrl);
+        description.put("icon_url_large", iconUrlLarge);
+        description.put("tradable", 1);
+        description.put("marketable", 1);
+
+        JSONArray assets = new JSONArray();
+        assets.add(asset);
+        JSONArray descriptions = new JSONArray();
+        descriptions.add(description);
+
+        JSONObject payload = new JSONObject();
+        payload.put("assets", assets);
+        payload.put("descriptions", descriptions);
+        return payload;
     }
 }

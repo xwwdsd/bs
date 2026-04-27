@@ -31,6 +31,15 @@ public class PlayerShowController {
         return Result.success(playerShowService.getAllShows());
     }
 
+    @GetMapping("/{id}")
+    public Result<PlayerShow> getShowById(@PathVariable Long id) {
+        PlayerShow show = playerShowService.getShowById(id);
+        if (show == null) {
+            return Result.error(404, "玩家秀不存在");
+        }
+        return Result.success(show);
+    }
+
     @GetMapping("/my")
     public Result<List<PlayerShow>> getMyShows(HttpServletRequest request) {
         Long userId = getUserId(request);
@@ -47,11 +56,31 @@ public class PlayerShowController {
         return Result.success(playerShowService.createShow(userId, body.get("imageUrl"), body.get("description")));
     }
 
+    @PutMapping("/{id}")
+    public Result<PlayerShow> updateShow(@PathVariable Long id, @RequestBody Map<String, String> body, HttpServletRequest request) {
+        Long userId = getUserId(request);
+        if (userId == null) return Result.error(401, "未登录");
+
+        String imageUrl = body.get("imageUrl");
+        if (imageUrl == null || imageUrl.trim().isEmpty()) {
+            return Result.error(400, "图片不能为空");
+        }
+
+        PlayerShow show = playerShowService.updateShow(id, userId, imageUrl.trim(), body.get("description"));
+        if (show == null) {
+            return Result.error(403, "无权修改或玩家秀不存在");
+        }
+        return Result.success(show);
+    }
+
     @PostMapping("/{id}/like")
     public Result<Void> likeShow(@PathVariable Long id, HttpServletRequest request) {
         Long userId = getUserId(request);
         if (userId == null) {
             return Result.error(401, "未登录");
+        }
+        if (playerShowService.getShowById(id) == null) {
+            return Result.error(404, "玩家秀不存在");
         }
         boolean success = playerShowService.likeShow(id, userId);
         if (success) {
@@ -84,6 +113,9 @@ public class PlayerShowController {
 
     @GetMapping("/{id}/comments")
     public Result<List<PlayerShowComment>> getComments(@PathVariable Long id) {
+        if (playerShowService.getShowById(id) == null) {
+            return Result.error(404, "玩家秀不存在");
+        }
         return Result.success(playerShowService.getComments(id));
     }
 
@@ -91,6 +123,13 @@ public class PlayerShowController {
     public Result<PlayerShowComment> addComment(@PathVariable Long id, @RequestBody Map<String, String> body, HttpServletRequest request) {
         Long userId = getUserId(request);
         if (userId == null) return Result.error(401, "未登录");
-        return Result.success(playerShowService.addComment(id, userId, body.get("content")));
+        if (playerShowService.getShowById(id) == null) {
+            return Result.error(404, "玩家秀不存在");
+        }
+        String content = body.get("content");
+        if (content == null || content.trim().isEmpty()) {
+            return Result.error(400, "评论内容不能为空");
+        }
+        return Result.success(playerShowService.addComment(id, userId, content.trim()));
     }
 }

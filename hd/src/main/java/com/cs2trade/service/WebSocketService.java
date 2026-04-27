@@ -76,7 +76,7 @@ public class WebSocketService {
         payload.put("type", "PAYMENT_RECEIVED");
         payload.put("orderId", orderId);
         payload.put("amount", amount);
-        payload.put("message", "订单已支付，请尽快发货");
+        payload.put("message", "订单已支付，等待买家发送 Steam 报价");
         payload.put("timestamp", System.currentTimeMillis());
 
         String destination = "/topic/user/" + sellerId + "/orders";
@@ -85,7 +85,7 @@ public class WebSocketService {
     }
 
     /**
-     * 发送发货通知给买家
+     * 发送报价检测通知给买家
      *
      * @param buyerId 买家ID
      * @param orderId 订单ID
@@ -96,12 +96,12 @@ public class WebSocketService {
         payload.put("type", "ORDER_SHIPPED");
         payload.put("orderId", orderId);
         payload.put("tradeOfferUrl", tradeOfferUrl);
-        payload.put("message", "卖家已发货，请查看Steam交易报价");
+        payload.put("message", "已检测到买家发出的 Steam 报价");
         payload.put("timestamp", System.currentTimeMillis());
 
         String destination = "/topic/user/" + buyerId + "/orders";
         messagingTemplate.convertAndSend(destination, payload);
-        log.info("发送发货通知: buyerId={}, orderId={}", buyerId, orderId);
+        log.info("发送报价检测通知: buyerId={}, orderId={}", buyerId, orderId);
     }
 
     /**

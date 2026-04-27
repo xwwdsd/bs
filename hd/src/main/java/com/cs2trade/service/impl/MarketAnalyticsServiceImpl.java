@@ -24,6 +24,8 @@ import com.cs2trade.mapper.MarketAnalyticsMapper;
 import com.cs2trade.mapper.UserInventoryMapper;
 import com.cs2trade.service.MarketAnalyticsService;
 import com.cs2trade.util.SteamApiClient;
+import com.cs2trade.util.SteamItemIdentityUtils;
+import com.cs2trade.util.SteamMarketPageResult;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -43,6 +45,7 @@ import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -68,6 +71,10 @@ public class MarketAnalyticsServiceImpl implements MarketAnalyticsService {
     private static final String RANGE_MONTH = "month";
     private static final BigDecimal BUY_DISCOUNT = new BigDecimal("0.95");
     private static final BigDecimal PRICE_UNDERCUT = new BigDecimal("0.01");
+    private static final BigDecimal SNAPSHOT_PRICE_DIFF_TOLERANCE = new BigDecimal("0.005");
+    private static final BigDecimal ABNORMAL_LOWEST_SELL_HIGH_MULTIPLIER = new BigDecimal("1.20");
+    private static final BigDecimal ABNORMAL_LOWEST_SELL_LOW_MULTIPLIER = new BigDecimal("0.80");
+    private static final int RECOMMENDATION_STEAM_SEARCH_LIMIT = 10;
     private static final BigDecimal ZERO_MONEY = BigDecimal.ZERO.setScale(2, RoundingMode.HALF_UP);
     private static final Pattern PRICE_PATTERN = Pattern.compile("(\\d+(?:\\.\\d{1,2})?)");
     private static final Pattern INTEGER_PATTERN = Pattern.compile("(\\d+)");
@@ -109,18 +116,30 @@ public class MarketAnalyticsServiceImpl implements MarketAnalyticsService {
         }
         List<ItemPriceHistory> localHistory = itemPriceHistoryMapper.selectByItemIdAndSource(itemId, SOURCE_LOCAL_TRADE);
         List<RecentTradeRecord> recentTrades = marketAnalyticsMapper.selectRecentCompletedTrades(itemId, 10);
+        BigDecimal liveLowestSellPrice = positiveMoney(marketAnalyticsMapper.selectLowestActiveSellPrice(itemId));
         BigDecimal highestBuyPrice = positiveMoney(marketAnalyticsMapper.selectHighestActiveBuyPrice(itemId));
+        BigDecimal avgTradePrice7d = snapshot != null ? snapshot.getAvgTradePrice7d() : null;
+        BigDecimal effectiveLowestSellPrice = firstPositiveMoney(
+                liveLowestSellPrice,
+                snapshot != null ? snapshot.getLowestSellPrice() : null
+        );
         BigDecimal steamOverviewPrice = item != null && positiveMoney(item.getSteamReferencePrice()) == null
                 ? fetchSteamReferencePrice(item)
                 : null;
         ReferencePriceChoice referenceChoice = resolveReferencePriceChoice(
                 item,
                 steamOverviewPrice,
+                effectiveLowestSellPrice,
                 snapshot != null ? snapshot.getReferencePrice() : null,
                 snapshot != null ? snapshot.getLatestPrice() : null,
-                snapshot != null ? snapshot.getLowestSellPrice() : null,
-                snapshot != null ? snapshot.getAvgTradePrice7d() : null,
+                avgTradePrice7d,
                 highestBuyPrice
+        );
+        PricingDecision pricingDecision = resolvePricingDecision(
+                effectiveLowestSellPrice,
+                avgTradePrice7d,
+                highestBuyPrice,
+                referenceChoice.price()
         );
         if (item != null && REFERENCE_SOURCE_STEAM.equals(referenceChoice.source())
                 && shouldRefreshSteamHistoryForCurrencyMismatch(steamHistory, referenceChoice.price())) {
@@ -147,21 +166,43 @@ public class MarketAnalyticsServiceImpl implements MarketAnalyticsService {
         panel.setReferencePriceSource(referenceChoice.source());
         panel.setHighestBuyPrice(highestBuyPrice);
         panel.setDataNote(resolveMarketPanelNote(trendSource, fallbackTrendPrice));
-        panel.setPricingBasis(resolvePricingBasis(snapshot, highestBuyPrice, trendSource, referenceChoice));
+        panel.setPricingBasis(resolvePricingBasis(
+                effectiveLowestSellPrice,
+                avgTradePrice7d,
+                highestBuyPrice,
+                trendSource,
+                referenceChoice,
+                pricingDecision
+        ));
 
         if (snapshot != null) {
-            panel.setLatestPrice(firstPositiveMoney(snapshot.getLatestPrice(), referenceChoice.price()));
-            panel.setLowestSellPrice(snapshot.getLowestSellPrice());
-            panel.setAvgTradePrice7d(snapshot.getAvgTradePrice7d());
+            panel.setLatestPrice(firstPositiveMoney(
+                    snapshot.getLatestPrice(),
+                    effectiveLowestSellPrice,
+                    avgTradePrice7d,
+                    highestBuyPrice,
+                    referenceChoice.price()
+            ));
+            panel.setLowestSellPrice(effectiveLowestSellPrice);
+            panel.setAvgTradePrice7d(avgTradePrice7d);
             panel.setPriceChange7d(snapshot.getPriceChange7d());
             panel.setPriceChange30d(snapshot.getPriceChange30d());
             panel.setHeatScore(snapshot.getHeatScore());
             panel.setLiquidityScore(snapshot.getLiquidityScore());
             panel.setVolatilityScore(snapshot.getVolatilityScore());
-            panel.setSuggestedBuyPrice(snapshot.getSuggestedBuyPrice());
-            panel.setSuggestedSellPrice(snapshot.getSuggestedSellPrice());
+            panel.setSuggestedBuyPrice(pricingDecision.suggestedBuyPrice());
+            panel.setSuggestedSellPrice(pricingDecision.suggestedSellPrice());
         } else {
-            panel.setLatestPrice(referenceChoice.price());
+            panel.setLatestPrice(firstPositiveMoney(
+                    effectiveLowestSellPrice,
+                    avgTradePrice7d,
+                    highestBuyPrice,
+                    referenceChoice.price()
+            ));
+            panel.setLowestSellPrice(effectiveLowestSellPrice);
+            panel.setAvgTradePrice7d(avgTradePrice7d);
+            panel.setSuggestedBuyPrice(pricingDecision.suggestedBuyPrice());
+            panel.setSuggestedSellPrice(pricingDecision.suggestedSellPrice());
         }
 
         return panel;
@@ -193,6 +234,13 @@ public class MarketAnalyticsServiceImpl implements MarketAnalyticsService {
             Item item = inventory.getItem();
             ItemMarketSnapshot snapshot = snapshotMap.get(inventory.getItemId());
             BigDecimal referencePrice = resolveInventoryReferencePrice(inventory, snapshot);
+            BigDecimal highestBuyPrice = positiveMoney(marketAnalyticsMapper.selectHighestActiveBuyPrice(inventory.getItemId()));
+            PricingDecision pricingDecision = resolvePricingDecision(
+                    snapshot != null ? snapshot.getLowestSellPrice() : null,
+                    snapshot != null ? snapshot.getAvgTradePrice7d() : null,
+                    highestBuyPrice,
+                    referencePrice
+            );
             totalValue = totalValue.add(defaultMoney(referencePrice));
 
             String category = firstNonBlank(item != null ? item.getCategory() : null, "other");
@@ -240,7 +288,10 @@ public class MarketAnalyticsServiceImpl implements MarketAnalyticsService {
             recommendation.setSellPriorityScore(sellPriorityScore);
             recommendation.setActionLabel(resolveActionLabel(sellPriorityScore));
             recommendation.setReasonTags(resolveReasonTags(snapshot, true));
-            recommendation.setSuggestedSellPrice(snapshot != null ? snapshot.getSuggestedSellPrice() : referencePrice);
+            recommendation.setSuggestedSellPrice(firstPositiveMoney(
+                    pricingDecision.suggestedSellPrice(),
+                    referencePrice
+            ));
             recommendations.add(recommendation);
         }
 
@@ -263,14 +314,33 @@ public class MarketAnalyticsServiceImpl implements MarketAnalyticsService {
     }
 
     @Override
-    public List<ItemRecommendation> getRecommendations(Long userId, int limit) {
+    public List<ItemRecommendation> getRecommendations(Long userId, Long currentItemId, int limit) {
         int safeLimit = Math.max(1, Math.min(limit, 12));
         List<Item> activeItems = itemMapper.selectAllActive();
+        if (activeItems.isEmpty()) {
+            return List.of();
+        }
+
         Map<Long, ItemMarketSnapshot> snapshotMap = toSnapshotMap(loadLatestSnapshots());
 
         if (snapshotMap.isEmpty()) {
-            rebuildAllMarketData();
-            snapshotMap = toSnapshotMap(loadLatestSnapshots());
+            log.info("Recommendation snapshots unavailable, falling back to static item metadata");
+        }
+
+        if (currentItemId != null) {
+            Item currentItem = activeItems.stream()
+                    .filter(item -> item != null && Objects.equals(item.getId(), currentItemId))
+                    .findFirst()
+                    .orElseGet(() -> itemMapper.selectById(currentItemId));
+            List<ItemRecommendation> contextualRecommendations = buildContextRecommendations(
+                    currentItem,
+                    activeItems,
+                    snapshotMap,
+                    safeLimit
+            );
+            if (!contextualRecommendations.isEmpty()) {
+                return contextualRecommendations;
+            }
         }
 
         if (userId == null) {
@@ -311,12 +381,17 @@ public class MarketAnalyticsServiceImpl implements MarketAnalyticsService {
                     item,
                     snapshot,
                     recommendScore,
-                    resolveRecommendationReason(item, categoryBonus, qualityBonus, exteriorBonus, heatScore)
+                    resolveRecommendationReason(item, categoryBonus, qualityBonus, exteriorBonus, heatScore),
+                    heatScore,
+                    50
             ));
         }
 
         candidates.sort(recommendationCandidateComparator());
-        return buildRecommendationsFromCandidates(candidates, safeLimit);
+        List<ItemRecommendation> recommendations = buildRecommendationsFromCandidates(candidates, safeLimit);
+        return recommendations.isEmpty()
+                ? buildHotRecommendations(activeItems, snapshotMap, safeLimit)
+                : recommendations;
     }
 
     @Override
@@ -373,7 +448,39 @@ public class MarketAnalyticsServiceImpl implements MarketAnalyticsService {
         boolean hasReference = positiveMoney(referenceChoice.price()) != null;
         if (!hasTrend && !hasReference) {
             rebuildMarketData(itemId);
+            return;
         }
+
+        PricingDecision pricingDecision = resolvePricingDecision(
+                latestSnapshot.getLowestSellPrice(),
+                latestSnapshot.getAvgTradePrice7d(),
+                highestBuyPrice,
+                referenceChoice.price()
+        );
+        if (isSnapshotPricingStale(latestSnapshot, pricingDecision)) {
+            if (item != null) {
+                rebuildSnapshot(item);
+            } else {
+                rebuildMarketData(itemId);
+            }
+        }
+    }
+
+    private boolean isSnapshotPricingStale(ItemMarketSnapshot snapshot, PricingDecision pricingDecision) {
+        if (snapshot == null || pricingDecision == null) {
+            return false;
+        }
+        return moneyDiffers(snapshot.getSuggestedSellPrice(), pricingDecision.suggestedSellPrice())
+                || moneyDiffers(snapshot.getSuggestedBuyPrice(), pricingDecision.suggestedBuyPrice());
+    }
+
+    private boolean moneyDiffers(BigDecimal storedPrice, BigDecimal freshPrice) {
+        BigDecimal stored = positiveMoney(storedPrice);
+        BigDecimal fresh = positiveMoney(freshPrice);
+        if (stored == null || fresh == null) {
+            return stored != fresh;
+        }
+        return stored.subtract(fresh).abs().compareTo(SNAPSHOT_PRICE_DIFF_TOLERANCE) > 0;
     }
 
     private void refreshSteamHistory(Item item) {
@@ -473,6 +580,9 @@ public class MarketAnalyticsServiceImpl implements MarketAnalyticsService {
         );
         BigDecimal referencePrice = referenceChoice.price();
         BigDecimal latestPrice = firstPositiveMoney(lastPrice(baselineHistory), lowestSellPrice, avgTradePrice7d, highestBuyPrice, referencePrice);
+        PricingDecision pricingDecision = resolvePricingDecision(lowestSellPrice, avgTradePrice7d, highestBuyPrice, referencePrice);
+        int historyHeatScore = calculateHistoryHeatScore(baselineHistory);
+        int historyLiquidityScore = calculateHistoryLiquidityScore(baselineHistory);
 
         ItemMarketSnapshot snapshot = new ItemMarketSnapshot();
         snapshot.setItemId(itemId);
@@ -488,10 +598,10 @@ public class MarketAnalyticsServiceImpl implements MarketAnalyticsService {
         snapshot.setPriceChange7d(calculatePriceChange(baselineHistory, 7));
         snapshot.setPriceChange30d(calculatePriceChange(baselineHistory, 30));
         snapshot.setVolatilityScore(calculateVolatilityScore(baselineHistory));
-        snapshot.setLiquidityScore(clampScore(tradeCount7d * 12 + activeSellCount * 4));
-        snapshot.setHeatScore(clampScore(tradeCount7d * 10 + favoriteCount * 3 + activeSellCount * 2));
-        snapshot.setSuggestedSellPrice(calculateSuggestedSellPrice(lowestSellPrice, avgTradePrice7d, highestBuyPrice, referencePrice));
-        snapshot.setSuggestedBuyPrice(calculateSuggestedBuyPrice(snapshot.getSuggestedSellPrice(), referencePrice));
+        snapshot.setLiquidityScore(clampScore(historyLiquidityScore + tradeCount7d * 12 + activeSellCount * 4));
+        snapshot.setHeatScore(clampScore(historyHeatScore + tradeCount7d * 10 + favoriteCount * 3 + activeSellCount * 2));
+        snapshot.setSuggestedSellPrice(pricingDecision.suggestedSellPrice());
+        snapshot.setSuggestedBuyPrice(pricingDecision.suggestedBuyPrice());
         itemMarketSnapshotMapper.insert(snapshot);
     }
 
@@ -598,6 +708,57 @@ public class MarketAnalyticsServiceImpl implements MarketAnalyticsService {
         return "暂无可用 Steam 历史、本站成交趋势或参考价。";
     }
 
+    private String resolvePricingBasis(BigDecimal lowestSellPrice,
+                                       BigDecimal avgTradePrice7d,
+                                       BigDecimal highestBuyPrice,
+                                       String trendSource,
+                                       ReferencePriceChoice referenceChoice,
+                                       PricingDecision pricingDecision) {
+        if (pricingDecision == null || positiveMoney(pricingDecision.suggestedSellPrice()) == null) {
+            return positiveMoney(highestBuyPrice) != null
+                    ? "暂无快照数据，先参考当前最高求购价。"
+                    : "暂无可用价格源，建议等待 Steam 或本站成交数据刷新。";
+        }
+
+        boolean hasAvgTrade = positiveMoney(avgTradePrice7d) != null;
+        boolean hasHighestBuy = positiveMoney(highestBuyPrice) != null;
+        boolean hasReference = positiveMoney(referenceChoice.price()) != null;
+
+        if (pricingDecision.ignoredLowestSell()) {
+            if (hasAvgTrade && hasReference) {
+                return "当前最低在售价明显偏离近 7 日成交价和参考价，已忽略异常挂单，建议卖价按近 7 日成交均价与参考价中的较高值估算，建议买价为卖价的 95%。";
+            }
+            if (hasAvgTrade) {
+                return "当前最低在售价明显偏离近 7 日成交价，已忽略异常挂单，建议卖价参考近 7 日成交均价，建议买价为卖价的 95%。";
+            }
+            if (hasReference) {
+                return "当前最低在售价明显偏离参考价，已忽略异常挂单并按参考价估算建议卖价，建议买价为卖价的 95%。";
+            }
+            if (hasHighestBuy) {
+                return "当前最低在售价明显偏离最高求购价，已忽略异常挂单，建议卖价先参考当前最高求购价，建议买价为卖价的 95%。";
+            }
+        }
+
+        if (pricingDecision.usedLowestSell() && hasAvgTrade) {
+            return "当前最低在售价低于近 7 日成交锚点且未明显异常，建议卖价小幅低于最低在售以提高成交速度，建议买价为卖价的 95%。";
+        }
+        if (pricingDecision.usedLowestSell()) {
+            return "当前最低在售价低于参考价且未明显异常，建议卖价小幅低于最低在售以提高成交速度，建议买价为卖价的 95%。";
+        }
+        if (hasAvgTrade) {
+            return "暂无在售挂单，建议卖价参考近 7 日本站成交均价，建议买价为卖价的 95%。";
+        }
+        if (hasHighestBuy) {
+            return "暂无在售和成交记录，建议价先参考当前最高求购价，等待成交后会自动切换到真实成交口径。";
+        }
+        if (hasReference) {
+            return SOURCE_REFERENCE.equals(trendSource)
+                    ? "暂无本站成交和 Steam 历史走势，建议卖价优先参考 Steam/Buff 参考价，避免被异常挂单影响。"
+                    : "暂无本站成交，建议卖价优先参考 Steam/Buff 参考价，避免被异常挂单影响。";
+        }
+        return "暂无可用价格源，建议等待 Steam 或本站成交数据刷新。";
+    }
+
     private String resolvePricingBasis(ItemMarketSnapshot snapshot,
                                        BigDecimal highestBuyPrice,
                                        String trendSource,
@@ -614,10 +775,10 @@ public class MarketAnalyticsServiceImpl implements MarketAnalyticsService {
         boolean hasReference = positiveMoney(snapshot.getReferencePrice()) != null;
 
         if (hasLowestSell && hasAvgTrade) {
-            return "建议卖价按“当前最低在售价减 0.01”和“近7日成交均价”取较高值，建议买价为卖价的 95%。";
+            return "建议卖价优先参考近7日成交和参考价，最低在售只作为盘口辅助。";
         }
         if (hasLowestSell) {
-            return "暂无近7日成交，建议卖价先按当前最低在售价减 0.01，建议买价为卖价的 95%。";
+            return "暂无近7日成交，建议卖价优先参考 Steam/Buff 参考价，最低在售只作为盘口辅助。";
         }
         if (hasAvgTrade) {
             return "暂无在售挂单，建议卖价参考近7日本站成交均价，建议买价为卖价的 95%。";
@@ -683,6 +844,61 @@ public class MarketAnalyticsServiceImpl implements MarketAnalyticsService {
         return tags.size() > 2 ? tags.subList(0, 2) : tags;
     }
 
+    private List<ItemRecommendation> buildContextRecommendations(Item currentItem,
+                                                                 List<Item> items,
+                                                                 Map<Long, ItemMarketSnapshot> snapshotMap,
+                                                                 int limit) {
+        if (currentItem == null || currentItem.getId() == null) {
+            return List.of();
+        }
+
+        ItemMarketSnapshot currentSnapshot = snapshotMap.get(currentItem.getId());
+        BigDecimal currentReferencePrice = resolveRecommendationReferencePrice(currentItem, currentSnapshot);
+        List<RecommendationCandidate> candidates = new ArrayList<>();
+
+        for (Item item : items) {
+            if (item == null || Objects.equals(item.getId(), currentItem.getId())) {
+                continue;
+            }
+
+            ItemMarketSnapshot snapshot = snapshotMap.get(item.getId());
+            boolean sameCategory = sameDimension(currentItem.getCategory(), item.getCategory());
+            boolean sameSubCategory = sameDimension(currentItem.getSubCategory(), item.getSubCategory());
+            boolean sameQuality = sameDimension(currentItem.getQuality(), item.getQuality());
+            boolean sameExterior = sameDimension(currentItem.getExterior(), item.getExterior());
+            int heatScore = snapshotHeatScore(snapshot);
+            int priceBonus = calculateContextPriceBonus(
+                    currentReferencePrice,
+                    resolveRecommendationReferencePrice(item, snapshot)
+            );
+
+            if (!sameCategory && !sameSubCategory && !sameQuality && !sameExterior && priceBonus == 0 && heatScore < 35) {
+                continue;
+            }
+
+            int recommendScore = clampScore(
+                    (sameCategory ? 28 : 0)
+                            + (sameSubCategory ? 26 : 0)
+                            + (sameQuality ? 14 : 0)
+                            + (sameExterior ? 8 : 0)
+                            + priceBonus
+                            + Math.round(heatScore * 0.35f)
+            );
+
+            candidates.add(new RecommendationCandidate(
+                    item,
+                    snapshot,
+                    recommendScore,
+                    resolveContextRecommendationReason(sameCategory, sameSubCategory, sameQuality, sameExterior, priceBonus, heatScore),
+                    heatScore,
+                    35
+            ));
+        }
+
+        candidates.sort(recommendationCandidateComparator());
+        return buildRecommendationsFromCandidates(candidates, limit);
+    }
+
     private List<ItemRecommendation> buildHotRecommendations(List<Item> items,
                                                              Map<Long, ItemMarketSnapshot> snapshotMap,
                                                              int limit) {
@@ -693,11 +909,14 @@ public class MarketAnalyticsServiceImpl implements MarketAnalyticsService {
             }
 
             ItemMarketSnapshot snapshot = snapshotMap.get(item.getId());
+            int heatScore = snapshotHeatScore(snapshot);
             candidates.add(new RecommendationCandidate(
                     item,
                     snapshot,
-                    snapshotHeatScore(snapshot),
-                    "近7日成交活跃"
+                    heatScore,
+                    resolveHotRecommendationReason(heatScore),
+                    heatScore,
+                    100
             ));
         }
 
@@ -708,19 +927,34 @@ public class MarketAnalyticsServiceImpl implements MarketAnalyticsService {
     private List<ItemRecommendation> buildRecommendationsFromCandidates(List<RecommendationCandidate> candidates, int limit) {
         List<ItemRecommendation> recommendations = new ArrayList<>();
         int batchSize = Math.max(limit * 10, 60);
+        Map<Long, SteamMetadataPatch> steamMetadataMap = new HashMap<>();
+        Set<Long> attemptedSteamItemIds = new HashSet<>();
         for (int start = 0; start < candidates.size() && recommendations.size() < limit; start += batchSize) {
             int end = Math.min(start + batchSize, candidates.size());
             List<RecommendationCandidate> batch = candidates.subList(start, end);
             Map<Long, String> inventoryIconMap = loadInventoryIconMap(batch);
 
             for (RecommendationCandidate candidate : batch) {
-                String iconUrl = resolveRecommendationIconUrl(candidate.item(), inventoryIconMap);
+                String iconUrl = resolveRecommendationIconUrl(
+                        candidate.item(),
+                        inventoryIconMap,
+                        steamMetadataMap,
+                        attemptedSteamItemIds
+                );
                 ItemRecommendation recommendation = buildItemRecommendation(candidate.item(), candidate.snapshot(), iconUrl);
-                if (!hasRecommendationIcon(recommendation)) {
-                    continue;
-                }
-                recommendation.setRecommendScore(candidate.recommendScore());
-                recommendation.setRecommendReason(candidate.recommendReason());
+                int resolvedHeatScore = resolveRecommendationHeatScore(
+                        candidate.item(),
+                        candidate.snapshot(),
+                        candidate.heatScore()
+                );
+                recommendation.setHeatScore(resolvedHeatScore);
+                recommendation.setRecommendScore(adjustRecommendationScore(
+                        candidate.recommendScore(),
+                        candidate.heatScore(),
+                        resolvedHeatScore,
+                        candidate.heatWeight()
+                ));
+                recommendation.setRecommendReason(resolveCandidateRecommendationReason(candidate, resolvedHeatScore));
                 recommendations.add(recommendation);
                 if (recommendations.size() >= limit) {
                     break;
@@ -730,11 +964,100 @@ public class MarketAnalyticsServiceImpl implements MarketAnalyticsService {
         return recommendations;
     }
 
+    private String resolveCandidateRecommendationReason(RecommendationCandidate candidate, int resolvedHeatScore) {
+        if (candidate != null && candidate.heatWeight() == 100) {
+            return resolveHotRecommendationReason(resolvedHeatScore);
+        }
+        return firstNonBlank(candidate != null ? candidate.recommendReason() : null, resolveHotRecommendationReason(resolvedHeatScore));
+    }
+
+    private String resolveHotRecommendationReason(int heatScore) {
+        int score = clampScore(heatScore);
+        if (score >= 70) {
+            return "近期热度较高";
+        }
+        if (score >= 35) {
+            return "近期热度稳定";
+        }
+        if (score > 0) {
+            return "有少量行情数据";
+        }
+        return "行情样本偏少";
+    }
+
+    private boolean sameDimension(String left, String right) {
+        String normalizedLeft = left == null ? "" : left.trim();
+        String normalizedRight = right == null ? "" : right.trim();
+        return !normalizedLeft.isEmpty() && normalizedLeft.equalsIgnoreCase(normalizedRight);
+    }
+
+    private int calculateContextPriceBonus(BigDecimal currentPrice, BigDecimal candidatePrice) {
+        BigDecimal safeCurrentPrice = positiveMoney(currentPrice);
+        BigDecimal safeCandidatePrice = positiveMoney(candidatePrice);
+        if (safeCurrentPrice == null || safeCandidatePrice == null) {
+            return 0;
+        }
+
+        BigDecimal diffRatio = safeCandidatePrice.subtract(safeCurrentPrice)
+                .abs()
+                .divide(safeCurrentPrice, 4, RoundingMode.HALF_UP);
+
+        if (diffRatio.compareTo(new BigDecimal("0.10")) <= 0) {
+            return 22;
+        }
+        if (diffRatio.compareTo(new BigDecimal("0.25")) <= 0) {
+            return 16;
+        }
+        if (diffRatio.compareTo(new BigDecimal("0.50")) <= 0) {
+            return 10;
+        }
+        if (diffRatio.compareTo(BigDecimal.ONE) <= 0) {
+            return 4;
+        }
+        return 0;
+    }
+
+    private String resolveContextRecommendationReason(boolean sameCategory,
+                                                      boolean sameSubCategory,
+                                                      boolean sameQuality,
+                                                      boolean sameExterior,
+                                                      int priceBonus,
+                                                      int heatScore) {
+        if (sameSubCategory && priceBonus >= 16) {
+            return "同系列相近价位";
+        }
+        if (sameSubCategory && sameQuality) {
+            return "同系列同品质";
+        }
+        if (sameCategory && sameQuality && priceBonus >= 10) {
+            return "同类型同品质";
+        }
+        if (sameCategory && sameExterior) {
+            return "同类型同磨损";
+        }
+        if (sameCategory && priceBonus >= 16) {
+            return "同类型相近价位";
+        }
+        if (sameSubCategory) {
+            return "同系列热门";
+        }
+        if (sameCategory) {
+            return "同类型热门";
+        }
+        if (priceBonus >= 16) {
+            return "相近价位推荐";
+        }
+        if (heatScore >= 65) {
+            return "近期热度较高";
+        }
+        return "为你推荐";
+    }
+
     private Comparator<RecommendationCandidate> recommendationCandidateComparator() {
         return Comparator
                 .comparingInt(RecommendationCandidate::recommendScore)
                 .reversed()
-                .thenComparing(candidate -> snapshotHeatScore(candidate.snapshot()), Comparator.reverseOrder())
+                .thenComparing(RecommendationCandidate::heatScore, Comparator.reverseOrder())
                 .thenComparing(
                         candidate -> resolveRecommendationReferencePrice(candidate.item(), candidate.snapshot()),
                         Comparator.nullsLast(Comparator.reverseOrder())
@@ -756,16 +1079,49 @@ public class MarketAnalyticsServiceImpl implements MarketAnalyticsService {
     }
 
     private BigDecimal resolveRecommendationReferencePrice(Item item, ItemMarketSnapshot snapshot) {
-        return firstPositiveMoney(
-                snapshot != null ? snapshot.getSuggestedSellPrice() : null,
+        BigDecimal referencePrice = firstPositiveMoney(
                 snapshot != null ? snapshot.getReferencePrice() : null,
                 item != null ? item.getSteamReferencePrice() : null,
-                item != null ? item.getBuffPrice() : null
+                item != null ? item.getBuffPrice() : null,
+                snapshot != null ? snapshot.getLatestPrice() : null
         );
+        PricingDecision pricingDecision = resolvePricingDecision(
+                snapshot != null ? snapshot.getLowestSellPrice() : null,
+                snapshot != null ? snapshot.getAvgTradePrice7d() : null,
+                null,
+                referencePrice
+        );
+        return firstPositiveMoney(pricingDecision.suggestedSellPrice(), referencePrice);
     }
 
     private int snapshotHeatScore(ItemMarketSnapshot snapshot) {
         return snapshot != null ? defaultInt(snapshot.getHeatScore()) : 0;
+    }
+
+    private int resolveRecommendationHeatScore(Item item, ItemMarketSnapshot snapshot, int candidateHeatScore) {
+        int heatScore = clampScore(Math.max(snapshotHeatScore(snapshot), candidateHeatScore));
+        if (heatScore > 0 || item == null || item.getId() == null) {
+            return heatScore;
+        }
+
+        int steamHeatScore = calculateHistoryHeatScore(
+                itemPriceHistoryMapper.selectByItemIdAndSource(item.getId(), SOURCE_STEAM)
+        );
+        if (steamHeatScore > 0) {
+            return steamHeatScore;
+        }
+
+        return calculateHistoryHeatScore(
+                itemPriceHistoryMapper.selectByItemIdAndSource(item.getId(), SOURCE_LOCAL_TRADE)
+        );
+    }
+
+    private int adjustRecommendationScore(int recommendScore,
+                                          int originalHeatScore,
+                                          int resolvedHeatScore,
+                                          int heatWeight) {
+        int heatDelta = Math.round((resolvedHeatScore - originalHeatScore) * (heatWeight / 100f));
+        return clampScore(recommendScore + heatDelta);
     }
 
     private Map<Long, String> loadInventoryIconMap(List<RecommendationCandidate> candidates) {
@@ -799,7 +1155,199 @@ public class MarketAnalyticsServiceImpl implements MarketAnalyticsService {
         return iconMap;
     }
 
-    private String resolveRecommendationIconUrl(Item item, Map<Long, String> inventoryIconMap) {
+    private SteamMetadataPatch resolveRecommendationSteamMetadata(Item item) {
+        String resolvedMarketHashName = resolveMarketHashName(item);
+        Set<String> searchQueries = new LinkedHashSet<>();
+        addSearchQuery(searchQueries, resolvedMarketHashName);
+        addSearchQuery(searchQueries, item != null ? item.getItemId() : null);
+        addSearchQuery(searchQueries, item != null ? item.getName() : null);
+        addSearchQuery(searchQueries, item != null ? item.getNameCn() : null);
+
+        for (String searchQuery : searchQueries) {
+            try {
+                SteamMarketPageResult result = steamApiClient.searchCsgoItems(searchQuery, RECOMMENDATION_STEAM_SEARCH_LIMIT);
+                if (result == null || !result.isSuccess() || result.getPayload() == null) {
+                    continue;
+                }
+
+                JSONObject matchedResult = findExactSteamSearchResult(result.getPayload().getJSONArray("results"), item);
+                if (matchedResult == null) {
+                    continue;
+                }
+
+                return buildSteamMetadataPatch(matchedResult);
+            } catch (Exception e) {
+                log.warn("Recommendation Steam metadata lookup failed: itemId={}, query={}, message={}",
+                        item != null ? item.getId() : null, searchQuery, e.getMessage());
+            }
+        }
+        return null;
+    }
+
+    private void addSearchQuery(Set<String> searchQueries, String query) {
+        if (query == null || query.isBlank()) {
+            return;
+        }
+        searchQueries.add(query.trim());
+    }
+
+    private JSONObject findExactSteamSearchResult(JSONArray results, Item item) {
+        if (results == null || results.isEmpty() || item == null) {
+            return null;
+        }
+
+        Set<String> targetKeys = new LinkedHashSet<>();
+        addNormalizedKey(targetKeys, resolveMarketHashName(item));
+        addNormalizedKey(targetKeys, item.getSteamMarketHashName());
+        addNormalizedKey(targetKeys, item.getItemId());
+        addNormalizedKey(targetKeys, item.getName());
+        addNormalizedKey(targetKeys, item.getNameCn());
+
+        for (int index = 0; index < results.size(); index++) {
+            JSONObject result = results.getJSONObject(index);
+            if (result == null) {
+                continue;
+            }
+
+            String hashName = extractSteamSearchHashName(result);
+            String displayName = firstNonBlank(
+                    result.getString("name"),
+                    extractSteamSearchAssetField(result, "market_name")
+            );
+            String normalizedHashName = SteamItemIdentityUtils.normalizeLookupKey(hashName);
+            String normalizedDisplayName = SteamItemIdentityUtils.normalizeLookupKey(displayName);
+            if (targetKeys.contains(normalizedHashName) || targetKeys.contains(normalizedDisplayName)) {
+                return result;
+            }
+        }
+        return null;
+    }
+
+    private void addNormalizedKey(Set<String> targetKeys, String value) {
+        String normalizedKey = SteamItemIdentityUtils.normalizeLookupKey(value);
+        if (normalizedKey != null) {
+            targetKeys.add(normalizedKey);
+        }
+    }
+
+    private SteamMetadataPatch buildSteamMetadataPatch(JSONObject steamResult) {
+        if (steamResult == null) {
+            return null;
+        }
+
+        String marketHashName = extractSteamSearchHashName(steamResult);
+        String steamMarketUrl = SteamItemIdentityUtils.buildSteamMarketUrl(marketHashName);
+        String iconUrl = firstUsableIconUrl(
+                SteamItemIdentityUtils.normalizeSteamIconUrl(extractSteamSearchAssetField(steamResult, "icon_url_large")),
+                SteamItemIdentityUtils.normalizeSteamIconUrl(extractSteamSearchAssetField(steamResult, "icon_url")),
+                SteamItemIdentityUtils.normalizeSteamIconUrl(steamResult.getString("icon_url"))
+        );
+        BigDecimal steamReferencePrice = parseSteamSearchPrice(steamResult);
+        if (marketHashName.isBlank() && steamMarketUrl == null && iconUrl.isBlank() && steamReferencePrice == null) {
+            return null;
+        }
+        return new SteamMetadataPatch(
+                iconUrl.isBlank() ? null : iconUrl,
+                marketHashName.isBlank() ? null : marketHashName,
+                steamMarketUrl,
+                steamReferencePrice
+        );
+    }
+
+    private String extractSteamSearchHashName(JSONObject steamResult) {
+        return firstNonBlank(
+                steamResult != null ? steamResult.getString("market_hash_name") : null,
+                steamResult != null ? steamResult.getString("hash_name") : null,
+                extractSteamSearchAssetField(steamResult, "market_hash_name"),
+                extractSteamSearchAssetField(steamResult, "market_name")
+        );
+    }
+
+    private String extractSteamSearchAssetField(JSONObject steamResult, String fieldName) {
+        if (steamResult == null || fieldName == null || fieldName.isBlank()) {
+            return "";
+        }
+
+        JSONObject assetDescription = steamResult.getJSONObject("asset_description");
+        if (assetDescription == null) {
+            return "";
+        }
+        return firstNonBlank(assetDescription.getString(fieldName));
+    }
+
+    private BigDecimal parseSteamSearchPrice(JSONObject steamResult) {
+        if (steamResult == null) {
+            return null;
+        }
+
+        Object sellPriceRaw = steamResult.get("sell_price");
+        if (sellPriceRaw instanceof Number sellPriceNumber && sellPriceNumber.longValue() > 0) {
+            return scaleMoney(BigDecimal.valueOf(sellPriceNumber.longValue(), 2));
+        }
+
+        BigDecimal price = parseMoney(steamResult.get("sell_price_text"));
+        if (price != null) {
+            return price;
+        }
+        return parseMoney(steamResult.get("price"));
+    }
+
+    private void persistRecommendationSteamMetadata(Item item, SteamMetadataPatch metadataPatch) {
+        if (item == null || item.getId() == null || metadataPatch == null || metadataPatch.isEmpty()) {
+            return;
+        }
+
+        Item updatedItem = new Item();
+        updatedItem.setId(item.getId());
+        boolean dirty = false;
+
+        if (metadataPatch.iconUrl() != null && !Objects.equals(item.getIconUrl(), metadataPatch.iconUrl())) {
+            updatedItem.setIconUrl(metadataPatch.iconUrl());
+            item.setIconUrl(metadataPatch.iconUrl());
+            dirty = true;
+        }
+        if (metadataPatch.steamMarketHashName() != null
+                && !Objects.equals(item.getSteamMarketHashName(), metadataPatch.steamMarketHashName())) {
+            updatedItem.setSteamMarketHashName(metadataPatch.steamMarketHashName());
+            item.setSteamMarketHashName(metadataPatch.steamMarketHashName());
+            dirty = true;
+        }
+        if (metadataPatch.steamMarketUrl() != null
+                && !Objects.equals(item.getSteamMarketUrl(), metadataPatch.steamMarketUrl())) {
+            updatedItem.setSteamMarketUrl(metadataPatch.steamMarketUrl());
+            item.setSteamMarketUrl(metadataPatch.steamMarketUrl());
+            dirty = true;
+        }
+        if (metadataPatch.steamReferencePrice() != null
+                && !Objects.equals(positiveMoney(item.getSteamReferencePrice()), positiveMoney(metadataPatch.steamReferencePrice()))) {
+            BigDecimal scaledPrice = scaleMoney(metadataPatch.steamReferencePrice());
+            updatedItem.setSteamReferencePrice(scaledPrice);
+            updatedItem.setSteamReferenceCurrency("CNY");
+            updatedItem.setSteamReferencePriceSource("steam_market_search");
+            updatedItem.setSteamReferencePriceUpdatedAt(LocalDateTime.now());
+            item.setSteamReferencePrice(scaledPrice);
+            item.setSteamReferenceCurrency("CNY");
+            item.setSteamReferencePriceSource("steam_market_search");
+            item.setSteamReferencePriceUpdatedAt(updatedItem.getSteamReferencePriceUpdatedAt());
+            dirty = true;
+        }
+
+        if (!dirty) {
+            return;
+        }
+
+        try {
+            itemMapper.updateById(updatedItem);
+        } catch (Exception e) {
+            log.warn("Failed to persist recommendation Steam metadata: itemId={}, message={}",
+                    item.getId(), e.getMessage());
+        }
+    }
+
+    private String resolveRecommendationIconUrl(Item item,
+                                                Map<Long, String> inventoryIconMap,
+                                                Map<Long, SteamMetadataPatch> steamMetadataMap,
+                                                Set<Long> attemptedSteamItemIds) {
         if (item == null) {
             return "";
         }
@@ -814,18 +1362,26 @@ public class MarketAnalyticsServiceImpl implements MarketAnalyticsService {
         }
 
         String inventoryIconUrl = firstUsableIconUrl(inventoryIconMap.get(item.getId()));
-        if (inventoryIconUrl.isBlank()) {
+        if (!inventoryIconUrl.isBlank()) {
+            return inventoryIconUrl;
+        }
+
+        if (item.getId() == null) {
             return "";
         }
 
-        try {
-            itemMapper.updateIconUrl(item.getId(), inventoryIconUrl);
-            item.setIconUrl(inventoryIconUrl);
-        } catch (Exception ex) {
-            log.warn("Backfill recommendation item icon failed: itemId={}, message={}", item.getId(), ex.getMessage());
+        SteamMetadataPatch metadataPatch = steamMetadataMap.get(item.getId());
+        if (metadataPatch == null && attemptedSteamItemIds.add(item.getId())) {
+            metadataPatch = resolveRecommendationSteamMetadata(item);
+            if (metadataPatch != null && !metadataPatch.isEmpty()) {
+                persistRecommendationSteamMetadata(item, metadataPatch);
+                steamMetadataMap.put(item.getId(), metadataPatch);
+            }
         }
-
-        return inventoryIconUrl;
+        if (metadataPatch == null) {
+            return "";
+        }
+        return firstUsableIconUrl(metadataPatch.iconUrl());
     }
 
     private String firstUsableIconUrl(String... values) {
@@ -858,8 +1414,33 @@ public class MarketAnalyticsServiceImpl implements MarketAnalyticsService {
             Item item,
             ItemMarketSnapshot snapshot,
             int recommendScore,
-            String recommendReason
+            String recommendReason,
+            int heatScore,
+            int heatWeight
     ) {
+    }
+
+    private record PricingDecision(
+            BigDecimal suggestedSellPrice,
+            BigDecimal suggestedBuyPrice,
+            BigDecimal anchorPrice,
+            boolean usedLowestSell,
+            boolean ignoredLowestSell
+    ) {
+    }
+
+    private record SteamMetadataPatch(
+            String iconUrl,
+            String steamMarketHashName,
+            String steamMarketUrl,
+            BigDecimal steamReferencePrice
+    ) {
+        private boolean isEmpty() {
+            return iconUrl == null
+                    && steamMarketHashName == null
+                    && steamMarketUrl == null
+                    && steamReferencePrice == null;
+        }
     }
 
     private void accumulateProfileFromFavorites(List<Favorite> favorites,
@@ -953,11 +1534,13 @@ public class MarketAnalyticsServiceImpl implements MarketAnalyticsService {
 
     private BigDecimal resolveInventoryReferencePrice(UserInventory inventory, ItemMarketSnapshot snapshot) {
         return firstPositiveMoney(
-                snapshot != null ? snapshot.getSuggestedSellPrice() : null,
                 snapshot != null ? snapshot.getReferencePrice() : null,
                 inventory.getItem() != null ? inventory.getItem().getSteamReferencePrice() : null,
                 inventory.getItem() != null ? inventory.getItem().getBuffPrice() : null,
-                inventory.getMarketPrice()
+                inventory.getMarketPrice(),
+                snapshot != null ? snapshot.getLatestPrice() : null,
+                snapshot != null ? snapshot.getLowestSellPrice() : null,
+                snapshot != null ? snapshot.getAvgTradePrice7d() : null
         );
     }
 
@@ -976,6 +1559,94 @@ public class MarketAnalyticsServiceImpl implements MarketAnalyticsService {
                 || reason.contains("限制")
                 || reason.contains("冷却");
         return marketable && normalStatus && !blockedByReason;
+    }
+
+    private int calculateHistoryHeatScore(List<ItemPriceHistory> histories) {
+        List<ItemPriceHistory> recent7d = filterHistoryByDays(histories, 7);
+        List<ItemPriceHistory> recent30d = filterHistoryByDays(histories, 30);
+        if (recent7d.isEmpty() && recent30d.isEmpty()) {
+            return 0;
+        }
+
+        int volume7d = sumHistoryActivityUnits(recent7d);
+        int volume30d = sumHistoryActivityUnits(recent30d);
+        int tradingDays7d = countHistoryTradingDays(recent7d);
+        int momentumScore = Math.min(14, calculatePriceChange(histories, 7)
+                .abs()
+                .setScale(0, RoundingMode.HALF_UP)
+                .intValue());
+
+        return clampScore(
+                Math.min(56, volume7d * 4)
+                        + Math.min(18, volume30d / 2)
+                        + Math.min(12, tradingDays7d * 2)
+                        + momentumScore
+        );
+    }
+
+    private int calculateHistoryLiquidityScore(List<ItemPriceHistory> histories) {
+        List<ItemPriceHistory> recent7d = filterHistoryByDays(histories, 7);
+        List<ItemPriceHistory> recent30d = filterHistoryByDays(histories, 30);
+        if (recent7d.isEmpty() && recent30d.isEmpty()) {
+            return 0;
+        }
+
+        int volume7d = sumHistoryActivityUnits(recent7d);
+        int volume30d = sumHistoryActivityUnits(recent30d);
+        int tradingDays30d = countHistoryTradingDays(recent30d);
+
+        return clampScore(
+                Math.min(62, volume7d * 5)
+                        + Math.min(26, volume30d)
+                        + Math.min(12, tradingDays30d)
+        );
+    }
+
+    private int sumHistoryActivityUnits(List<ItemPriceHistory> histories) {
+        if (histories == null || histories.isEmpty()) {
+            return 0;
+        }
+
+        int total = 0;
+        for (ItemPriceHistory history : histories) {
+            if (history == null) {
+                continue;
+            }
+
+            int volume = defaultInt(history.getVolume());
+            if (volume > 0) {
+                total += volume;
+            } else if (positiveMoney(history.getPrice()) != null) {
+                total += 1;
+            }
+        }
+        return total;
+    }
+
+    private int countHistoryTradingDays(List<ItemPriceHistory> histories) {
+        if (histories == null || histories.isEmpty()) {
+            return 0;
+        }
+
+        Set<LocalDate> tradingDays = new HashSet<>();
+        for (ItemPriceHistory history : histories) {
+            if (history != null && history.getRecordedAt() != null && historyActivityUnits(history) > 0) {
+                tradingDays.add(history.getRecordedAt().toLocalDate());
+            }
+        }
+        return tradingDays.size();
+    }
+
+    private int historyActivityUnits(ItemPriceHistory history) {
+        if (history == null) {
+            return 0;
+        }
+
+        int volume = defaultInt(history.getVolume());
+        if (volume > 0) {
+            return volume;
+        }
+        return positiveMoney(history.getPrice()) != null ? 1 : 0;
     }
 
     private Integer calculateVolatilityScore(List<ItemPriceHistory> histories) {
@@ -1051,22 +1722,76 @@ public class MarketAnalyticsServiceImpl implements MarketAnalyticsService {
         );
     }
 
+    private PricingDecision resolvePricingDecision(BigDecimal lowestSellPrice,
+                                                   BigDecimal avgTradePrice7d,
+                                                   BigDecimal highestBuyPrice,
+                                                   BigDecimal referencePrice) {
+        BigDecimal averageCandidate = positiveMoney(avgTradePrice7d);
+        BigDecimal referenceCandidate = positiveMoney(referencePrice);
+        BigDecimal buyCandidate = positiveMoney(highestBuyPrice);
+        BigDecimal anchorPrice = firstPositiveMoney(averageCandidate, referenceCandidate, buyCandidate);
+
+        BigDecimal trustedLowestCandidate = positiveMoney(lowestSellPrice);
+        boolean ignoredLowestSell = false;
+        if (trustedLowestCandidate != null && anchorPrice != null) {
+            BigDecimal highLimit = scaleMoney(anchorPrice.multiply(ABNORMAL_LOWEST_SELL_HIGH_MULTIPLIER));
+            BigDecimal lowLimit = scaleMoney(anchorPrice.multiply(ABNORMAL_LOWEST_SELL_LOW_MULTIPLIER));
+            ignoredLowestSell = trustedLowestCandidate.compareTo(highLimit) > 0
+                    || trustedLowestCandidate.compareTo(lowLimit) < 0;
+            if (ignoredLowestSell) {
+                trustedLowestCandidate = null;
+            }
+        }
+
+        boolean usedLowestSell = false;
+        BigDecimal undercutLowestSell = null;
+        if (trustedLowestCandidate != null) {
+            undercutLowestSell = trustedLowestCandidate.subtract(PRICE_UNDERCUT);
+            if (undercutLowestSell.compareTo(PRICE_UNDERCUT) < 0) {
+                undercutLowestSell = PRICE_UNDERCUT;
+            }
+        }
+
+        BigDecimal suggestedSellCandidate;
+        if (anchorPrice != null) {
+            if (undercutLowestSell != null && undercutLowestSell.compareTo(anchorPrice) < 0) {
+                suggestedSellCandidate = undercutLowestSell;
+                usedLowestSell = true;
+            } else {
+                suggestedSellCandidate = anchorPrice;
+            }
+        } else {
+            suggestedSellCandidate = undercutLowestSell;
+            usedLowestSell = positiveMoney(undercutLowestSell) != null;
+        }
+
+        BigDecimal suggestedSellPrice = scaleMoney(suggestedSellCandidate);
+        if (positiveMoney(suggestedSellPrice) == null) {
+            suggestedSellPrice = ZERO_MONEY;
+        }
+
+        BigDecimal suggestedBuyPrice = positiveMoney(suggestedSellPrice) != null
+                ? scaleMoney(suggestedSellPrice.multiply(BUY_DISCOUNT))
+                : ZERO_MONEY;
+        return new PricingDecision(
+                suggestedSellPrice,
+                suggestedBuyPrice,
+                anchorPrice,
+                usedLowestSell,
+                ignoredLowestSell
+        );
+    }
+
     private BigDecimal calculateSuggestedSellPrice(BigDecimal lowestSellPrice,
                                                    BigDecimal avgTradePrice7d,
                                                    BigDecimal highestBuyPrice,
                                                    BigDecimal referencePrice) {
-        BigDecimal lowestCandidate = positiveMoney(lowestSellPrice);
-        if (lowestCandidate != null) {
-            lowestCandidate = lowestCandidate.subtract(PRICE_UNDERCUT);
-            if (lowestCandidate.compareTo(PRICE_UNDERCUT) < 0) {
-                lowestCandidate = PRICE_UNDERCUT;
-            }
-        }
-
-        BigDecimal averageCandidate = positiveMoney(avgTradePrice7d);
-        BigDecimal buyCandidate = positiveMoney(highestBuyPrice);
-        BigDecimal tradeCandidate = maxPositiveMoney(lowestCandidate, averageCandidate);
-        return scaleMoney(firstPositiveMoney(maxPositiveMoney(tradeCandidate, buyCandidate), referencePrice));
+        return resolvePricingDecision(
+                lowestSellPrice,
+                avgTradePrice7d,
+                highestBuyPrice,
+                referencePrice
+        ).suggestedSellPrice();
     }
 
     private BigDecimal calculateSuggestedBuyPrice(BigDecimal suggestedSellPrice, BigDecimal referencePrice) {

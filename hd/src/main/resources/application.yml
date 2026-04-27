@@ -220,7 +220,7 @@ steam:
     port: 7897
     type: HTTP # HTTP 或 SOCKS
   market-sync:
-    page-size: 100
+    page-size: 10
     max-pages-per-run: 200
     rate-limit-backoff-seconds:
       - 60

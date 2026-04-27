@@ -142,6 +142,30 @@
                   确认收货
                 </el-button>
                 <el-button
+                  v-if="row.status === 2 && row.seller?.steamTradeUrl"
+                  type="primary"
+                  size="small"
+                  @click="openOfferGuide(row)"
+                >
+                  发送报价
+                </el-button>
+                <el-button
+                  v-if="row.status === 2"
+                  size="small"
+                  :loading="checkingOfferOrderId === row.id"
+                  @click="handleDetectOffer(row)"
+                >
+                  检测报价
+                </el-button>
+                <el-button
+                  v-if="row.status === 1"
+                  size="small"
+                  :loading="checkingOfferOrderId === row.id"
+                  @click="handleBotCheck(row)"
+                >
+                  刷新状态
+                </el-button>
+                <el-button
                   v-if="row.status === 0 || row.status === 2"
                   size="small"
                   :loading="cancellingOrderId === row.id"
@@ -178,7 +202,7 @@
           <p>状态：{{ getStatusText(currentOrder.status) }}</p>
           <p>创建时间：{{ formatDate(currentOrder.createdAt) }}</p>
           <p v-if="currentOrder.paidAt">支付时间：{{ formatDate(currentOrder.paidAt) }}</p>
-          <p v-if="currentOrder.sentAt">发货时间：{{ formatDate(currentOrder.sentAt) }}</p>
+          <p v-if="currentOrder.sentAt">报价检测时间：{{ formatDate(currentOrder.sentAt) }}</p>
           <p v-if="currentOrder.completedAt">完成时间：{{ formatDate(currentOrder.completedAt) }}</p>
         </div>
 
@@ -189,12 +213,108 @@
           <p>手续费：¥ {{ formatPrice(currentOrder.fee) }}</p>
           <p>Steam 报价状态：{{ currentOrder.steamOfferStateText || '-' }}</p>
           <p v-if="currentOrder.monitorErrorMessage">检测备注：{{ currentOrder.monitorErrorMessage }}</p>
+          <p v-if="currentOrder.status === 2 && currentOrder.seller?.steamTradeUrl">
+            卖家报价链接：
+            <a :href="buildPrefilledTradeUrl(currentOrder)" target="_blank" rel="noreferrer">打开链接</a>
+          </p>
           <p v-if="currentOrder.tradeOfferId">报价 ID：{{ currentOrder.tradeOfferId }}</p>
           <p v-if="currentOrder.tradeOfferUrl">
             报价链接：
             <a :href="currentOrder.tradeOfferUrl" target="_blank" rel="noreferrer">打开链接</a>
           </p>
         </div>
+      </div>
+    </el-dialog>
+
+    <el-dialog v-model="offerGuideVisible" title="发送 Steam 报价" width="720px">
+      <div v-if="offerGuideOrder" class="offer-guide">
+        <section class="offer-summary">
+          <img :src="offerGuideOrder.item?.iconUrl || '/default-item.svg'" :alt="getItemName(offerGuideOrder)" />
+          <div>
+            <h4>{{ getItemName(offerGuideOrder) }}</h4>
+            <p>成交价：¥ {{ formatPrice(offerGuideOrder.price) }}</p>
+            <p>卖家：{{ offerGuideOrder.seller?.username || '未知用户' }}</p>
+          </div>
+        </section>
+
+        <div class="offer-steps">
+          <article>
+            <strong>1</strong>
+            <div>
+              <h5>打开已带入饰品的 Steam 报价页</h5>
+              <p>系统会把本订单饰品参数带到 Steam 官方报价页面。</p>
+            </div>
+          </article>
+          <article>
+            <strong>2</strong>
+            <div>
+              <h5>核对后发送报价</h5>
+              <p>确认收取方、饰品和数量无误后，在 Steam 页面点击发送。</p>
+            </div>
+          </article>
+          <article>
+            <strong>3</strong>
+            <div>
+              <h5>回到本站检测报价</h5>
+              <p>系统会查你的已发送报价，匹配后继续跟踪 Steam 状态和库存到账。</p>
+            </div>
+          </article>
+        </div>
+
+        <div class="offer-actions">
+          <el-button
+            type="primary"
+            :disabled="!offerGuideOrder.seller?.steamTradeUrl"
+            @click="openSellerTradeUrl(offerGuideOrder)"
+          >
+            打开并自动选择饰品
+          </el-button>
+          <el-button
+            :loading="checkingOfferOrderId === offerGuideOrder.id"
+            @click="handleDetectOffer(offerGuideOrder)"
+          >
+            我已发送，检测报价
+          </el-button>
+        </div>
+
+        <div class="manual-offer-box">
+          <el-input
+            v-model="manualTradeOfferInput"
+            clearable
+            placeholder="检测不到时粘贴 Steam 报价链接或 ID"
+          >
+            <template #append>
+              <el-button
+                :loading="checkingOfferOrderId === offerGuideOrder.id"
+                @click="handleSubmitManualOffer(offerGuideOrder)"
+              >
+                提交报价
+              </el-button>
+            </template>
+          </el-input>
+        </div>
+
+        <el-alert
+          v-if="!offerGuideOrder.seller?.steamTradeUrl"
+          type="warning"
+          show-icon
+          :closable="false"
+          title="卖家暂未配置 Steam 报价链接，请联系卖家补充后再发送报价。"
+        />
+        <el-alert
+          v-else-if="!getTradeOfferAssetId(offerGuideOrder)"
+          type="warning"
+          show-icon
+          :closable="false"
+          title="当前订单缺少 Steam Asset ID，将打开普通报价链接，需要手动选择饰品。"
+        />
+        <el-alert
+          v-else
+          type="info"
+          show-icon
+          :closable="false"
+          title="安装本地 Steam 报价助手后，发送成功会自动登记报价；如果未登记，可粘贴报价链接兜底提交。"
+        />
       </div>
     </el-dialog>
   </div>
@@ -222,8 +342,12 @@ const pageSize = 10
 const payingOrderId = ref(null)
 const confirmingOrderId = ref(null)
 const cancellingOrderId = ref(null)
+const checkingOfferOrderId = ref(null)
 const detailDialogVisible = ref(false)
 const currentOrder = ref(null)
+const offerGuideVisible = ref(false)
+const offerGuideOrder = ref(null)
+const manualTradeOfferInput = ref('')
 
 const filters = ref({
   quality: '',
@@ -246,9 +370,9 @@ const exteriorOptions = [
 ]
 const statusOptions = [
   { value: '0', label: '待支付' },
-  { value: '1', label: '待发货' },
-  { value: '2', label: '待收货' },
-  { value: '3', label: '已发货' },
+  { value: '1', label: '报价中' },
+  { value: '2', label: '待发送报价' },
+  { value: '3', label: '待收货' },
   { value: '4', label: '已完成' },
   { value: '5', label: '已取消' }
 ]
@@ -312,6 +436,10 @@ const handlePay = async (order) => {
     await request.post(`/v1/order/${order.id}/pay`)
     ElMessage.success('支付成功')
     await fetchOrders()
+    const paidOrder = orders.value.find((entry) => entry.id === order.id)
+    if (paidOrder?.status === 2) {
+      openOfferGuide(paidOrder)
+    }
   } catch (error) {
     if (error !== 'cancel' && error !== 'close') {
       ElMessage.error(error?.response?.data?.message || error?.message || '支付失败')
@@ -338,6 +466,182 @@ const handleConfirm = async (order) => {
     }
   } finally {
     confirmingOrderId.value = null
+  }
+}
+
+const openOfferGuide = (order) => {
+  offerGuideOrder.value = order
+  manualTradeOfferInput.value = ''
+  offerGuideVisible.value = true
+}
+
+const STEAM_CSGO_APP_ID = '730'
+const STEAM_CSGO_CONTEXT_ID = '2'
+
+const getTradeOfferAssetId = (order) => String(order?.inventory?.assetId || order?.assetId || '').trim()
+
+const buildPrefilledTradeUrl = (order) => {
+  const baseUrl = order?.seller?.steamTradeUrl
+  const assetId = getTradeOfferAssetId(order)
+  if (!baseUrl || !assetId) {
+    return baseUrl
+  }
+
+  const forItem = `${STEAM_CSGO_APP_ID}_${STEAM_CSGO_CONTEXT_ID}_${assetId}`
+  try {
+    const url = new URL(baseUrl)
+    url.searchParams.set('for_item', forItem)
+    url.searchParams.set('cs2trade_order_id', order.id)
+    return url.toString()
+  } catch (error) {
+    const [withoutHash, hash = ''] = String(baseUrl).split('#')
+    const separator = withoutHash.includes('?') ? '&' : '?'
+    const extraParams = new URLSearchParams({
+      for_item: forItem,
+      cs2trade_order_id: String(order.id)
+    })
+    return `${withoutHash}${separator}${extraParams.toString()}${hash ? `#${hash}` : ''}`
+  }
+}
+
+const openSellerTradeUrl = (order) => {
+  const url = buildPrefilledTradeUrl(order)
+  if (!url) {
+    ElMessage.warning('卖家暂未配置 Steam 报价链接')
+    return
+  }
+  if (!getTradeOfferAssetId(order)) {
+    ElMessage.warning('当前订单缺少 Steam Asset ID，将打开普通报价链接')
+  }
+  window.open(url, '_blank', 'noreferrer')
+}
+
+const extractTradeOfferId = (value) => {
+  const text = String(value || '').trim()
+  if (/^\d+$/.test(text)) {
+    return text
+  }
+  return text.match(/\/tradeoffer\/(\d+)/)?.[1] || ''
+}
+
+const handleSubmitManualOffer = async (order) => {
+  const rawValue = manualTradeOfferInput.value.trim()
+  const tradeOfferId = extractTradeOfferId(rawValue)
+  if (!tradeOfferId) {
+    ElMessage.warning('请粘贴 Steam 报价链接或报价 ID')
+    return
+  }
+
+  checkingOfferOrderId.value = order.id
+  try {
+    await request.post(`/v1/order/${order.id}/buyer-offer/detect`, {
+      tradeOfferId,
+      tradeOfferUrl: rawValue.startsWith('http') ? rawValue : `https://steamcommunity.com/tradeoffer/${tradeOfferId}/`
+    })
+    ElMessage.success('Steam 报价已登记')
+    await fetchOrders()
+    const updatedOrder = orders.value.find((entry) => entry.id === order.id)
+    if (updatedOrder) {
+      offerGuideOrder.value = updatedOrder
+    }
+    offerGuideVisible.value = false
+  } catch (error) {
+    ElMessage.error(error?.response?.data?.message || error?.message || '提交报价失败')
+  } finally {
+    checkingOfferOrderId.value = null
+  }
+}
+
+const resolveSentOfferWithExtension = (order) => {
+  const requestId = `offer-${order.id}-${Date.now()}-${Math.random().toString(16).slice(2)}`
+
+  return new Promise((resolve, reject) => {
+    const timer = window.setTimeout(() => {
+      window.removeEventListener('message', onMessage)
+      reject(new Error('本地 Steam 报价助手未响应，请确认扩展已刷新并启用'))
+    }, 12000)
+
+    function onMessage(event) {
+      if (
+        event.source !== window ||
+        event.data?.source !== 'cs2trade_steam_offer_helper' ||
+        event.data?.type !== 'resolve-sent-offer-result' ||
+        event.data?.requestId !== requestId
+      ) {
+        return
+      }
+
+      window.clearTimeout(timer)
+      window.removeEventListener('message', onMessage)
+      const response = event.data.payload
+      if (response?.ok) {
+        resolve(response.result)
+      } else {
+        reject(new Error(response?.error || '本地 Steam 报价助手读取失败'))
+      }
+    }
+
+    window.addEventListener('message', onMessage)
+    window.postMessage({
+      source: 'cs2trade_site',
+      type: 'resolve-sent-offer',
+      requestId,
+      payload: {
+        orderId: order.id
+      }
+    }, '*')
+  })
+}
+
+const handleDetectOffer = async (order) => {
+  if (!order?.id) return
+
+  checkingOfferOrderId.value = order.id
+  try {
+    await request.post(`/v1/order/${order.id}/buyer-offer/detect`, {})
+    ElMessage.success('已触发系统检测你发出的报价')
+    await fetchOrders()
+    const updatedOrder = orders.value.find((entry) => entry.id === order.id)
+    if (updatedOrder) {
+      offerGuideOrder.value = updatedOrder
+      if (updatedOrder.status !== 2) {
+        offerGuideVisible.value = false
+      }
+    }
+  } catch (error) {
+    const message = error?.response?.data?.message || error?.message || '检测报价失败'
+    try {
+      ElMessage.info('正在通过本地 Steam 报价助手读取已发送请求')
+      await resolveSentOfferWithExtension(order)
+      ElMessage.success('已从 Steam 已发送请求登记报价')
+      await fetchOrders()
+      const updatedOrder = orders.value.find((entry) => entry.id === order.id)
+      if (updatedOrder) {
+        offerGuideOrder.value = updatedOrder
+        if (updatedOrder.status !== 2) {
+          offerGuideVisible.value = false
+        }
+      }
+    } catch (extensionError) {
+      ElMessage.error(extensionError?.message || message)
+    }
+  } finally {
+    checkingOfferOrderId.value = null
+  }
+}
+
+const handleBotCheck = async (order) => {
+  if (!order?.id) return
+
+  checkingOfferOrderId.value = order.id
+  try {
+    await request.post(`/v1/order/${order.id}/bot-check`)
+    ElMessage.success('报价状态已刷新')
+    await fetchOrders()
+  } catch (error) {
+    ElMessage.error(error?.response?.data?.message || error?.message || '检测报价失败')
+  } finally {
+    checkingOfferOrderId.value = null
   }
 }
 
@@ -378,9 +682,9 @@ const getUserInitial = (username) => String(username || '?').slice(0, 1).toUpper
 const getStatusText = (status) => {
   const map = {
     0: '待支付',
-    1: '待发货',
-    2: '待收货',
-    3: '已发货',
+    1: '报价中',
+    2: '待发送报价',
+    3: '待收货',
     4: '已完成',
     5: '已取消'
   }
@@ -564,6 +868,79 @@ watch(
 .detail-block p {
   margin: 0 0 10px;
   color: #4b5563;
+}
+
+.offer-guide {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.offer-summary {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 16px;
+  border: 1px solid #e5e7eb;
+  border-radius: 12px;
+  background: #f8fafc;
+}
+
+.offer-summary img {
+  width: 82px;
+  height: 82px;
+  object-fit: contain;
+  border-radius: 10px;
+  background: #fff;
+  border: 1px solid #e2e8f0;
+}
+
+.offer-summary h4,
+.offer-steps h5 {
+  margin: 0;
+  color: #111827;
+}
+
+.offer-summary p,
+.offer-steps p {
+  margin: 6px 0 0;
+  color: #64748b;
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.offer-steps {
+  display: grid;
+  gap: 12px;
+}
+
+.offer-steps article {
+  display: flex;
+  gap: 12px;
+  padding: 14px 16px;
+  border: 1px solid #e5e7eb;
+  border-radius: 12px;
+}
+
+.offer-steps strong {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: #2563eb;
+  color: #fff;
+}
+
+.offer-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.manual-offer-box {
+  margin-top: 12px;
 }
 
 @media (max-width: 1024px) {

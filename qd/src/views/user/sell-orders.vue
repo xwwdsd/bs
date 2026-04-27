@@ -63,7 +63,7 @@
                   :loading="shippingOrderId === getRelatedTradeOrder(order)?.id"
                   @click.stop="handleShip(order)"
                 >
-                  立即检测
+                  检测报价
                 </el-button>
                 <el-button
                   v-if="shouldShowCheckAction(order)"
@@ -95,7 +95,7 @@
           <p>状态：{{ getTradeOrderStatusText(currentTradeOrder.status) }}</p>
           <p>创建时间：{{ formatDate(currentTradeOrder.createdAt) }}</p>
           <p v-if="currentTradeOrder.paidAt">支付时间：{{ formatDate(currentTradeOrder.paidAt) }}</p>
-          <p v-if="currentTradeOrder.sentAt">发货时间：{{ formatDate(currentTradeOrder.sentAt) }}</p>
+          <p v-if="currentTradeOrder.sentAt">报价检测时间：{{ formatDate(currentTradeOrder.sentAt) }}</p>
           <p v-if="currentTradeOrder.completedAt">完成时间：{{ formatDate(currentTradeOrder.completedAt) }}</p>
         </div>
 
@@ -232,7 +232,7 @@ const getTradeOrderStatusText = (status) => {
   const map = {
     0: '等待买家付款',
     1: '报价检测中',
-    2: '待发货',
+    2: '等待买家报价',
     3: '等待买家收货',
     4: '交易完成',
     5: '交易已取消',
@@ -244,7 +244,7 @@ const getTradeOrderStatusText = (status) => {
 const getRelatedTradeOrder = (order) => tradeOrderMap.value.get(resolveTradeKey(order)) || null
 const hasRelatedTradeOrder = (order) => Boolean(getRelatedTradeOrder(order))
 const shouldShowSellCancel = (order) => Number(order?.status) === 1
-const shouldShowShipAction = (order) => Number(getRelatedTradeOrder(order)?.status) === 2
+const shouldShowShipAction = () => false
 const shouldShowCheckAction = (order) => Number(getRelatedTradeOrder(order)?.status) === 1
 
 const getTradeStageText = (order) => {
@@ -308,11 +308,11 @@ const handleShip = async (order) => {
 
   shippingOrderId.value = tradeOrder.id
   try {
-    await request.post(`/v1/order/${tradeOrder.id}/ship`, {})
-    ElMessage.success('已触发系统自动检测卖家发货')
+    await request.post(`/v1/order/${tradeOrder.id}/buyer-offer/detect`, {})
+    ElMessage.success('已触发系统检测买家报价')
     await fetchOrders()
   } catch (error) {
-    ElMessage.error(error?.response?.data?.message || error?.message || '自动检测发货失败')
+    ElMessage.error(error?.response?.data?.message || error?.message || '检测报价失败')
   } finally {
     shippingOrderId.value = null
   }

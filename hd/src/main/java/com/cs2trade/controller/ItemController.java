@@ -283,8 +283,13 @@ public class ItemController {
      * @return Result<Item> 添加后的饰品
      */
     @GetMapping("/recommendations")
-    public Result<?> getRecommendations(@RequestParam(defaultValue = "8") Integer limit) {
-        return Result.success(marketAnalyticsService.getRecommendations(getOptionalUserId(), limit == null ? 8 : limit));
+    public Result<?> getRecommendations(@RequestParam(defaultValue = "8") Integer limit,
+                                        @RequestParam(required = false) Long currentItemId) {
+        return Result.success(marketAnalyticsService.getRecommendations(
+                getOptionalUserId(),
+                currentItemId,
+                limit == null ? 8 : limit
+        ));
     }
 
     @PostMapping

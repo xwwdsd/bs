@@ -65,18 +65,26 @@ public class TradeOrderController {
             @PathVariable Long orderId,
             @RequestBody(required = false) ShipOrderRequest requestBody
     ) {
+        return detectBuyerOffer(orderId, requestBody);
+    }
+
+    @PostMapping("/{orderId}/buyer-offer/detect")
+    public Result<Boolean> detectBuyerOffer(
+            @PathVariable Long orderId,
+            @RequestBody(required = false) ShipOrderRequest requestBody
+    ) {
         try {
-            Long sellerId = getCurrentUserId();
+            Long buyerId = getCurrentUserId();
             String tradeOfferId = requestBody != null ? requestBody.getTradeOfferId() : null;
             String tradeOfferUrl = requestBody != null ? requestBody.getTradeOfferUrl() : null;
-            boolean success = tradeOrderService.shipOrder(orderId, sellerId, tradeOfferId, tradeOfferUrl);
-            return Result.success("已触发系统自动检测卖家发货", success);
+            boolean success = tradeOrderService.shipOrder(orderId, buyerId, tradeOfferId, tradeOfferUrl);
+            return Result.success("已触发系统自动检测买家报价", success);
         } catch (RuntimeException e) {
-            log.warn("卖家发货失败: orderId={}, error={}", orderId, e.getMessage());
+            log.warn("检测买家报价失败: orderId={}, error={}", orderId, e.getMessage());
             return Result.error(e.getMessage());
         } catch (Exception e) {
-            log.error("卖家发货异常: orderId={}", orderId, e);
-            return Result.error("自动检测发货失败，请稍后重试");
+            log.error("检测买家报价异常: orderId={}", orderId, e);
+            return Result.error("自动检测买家报价失败，请稍后重试");
         }
     }
 

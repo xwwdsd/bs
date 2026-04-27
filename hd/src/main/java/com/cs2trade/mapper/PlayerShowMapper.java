@@ -11,6 +11,7 @@ public interface PlayerShowMapper {
     List<PlayerShow> selectByUserId(@Param("userId") Long userId);
     PlayerShow selectById(Long id);
     int insert(PlayerShow show);
+    int updateByIdAndUserId(PlayerShow show);
     int incrementLikes(Long id);
     int deleteById(Long id);
 }

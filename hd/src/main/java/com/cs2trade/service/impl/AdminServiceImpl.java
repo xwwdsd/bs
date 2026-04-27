@@ -3,6 +3,7 @@ package com.cs2trade.service.impl;
 import com.cs2trade.entity.*;
 import com.cs2trade.mapper.*;
 import com.cs2trade.service.AdminService;
+import com.cs2trade.service.MessagePublishService;
 import com.cs2trade.service.TradeOrderService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -35,6 +36,7 @@ public class AdminServiceImpl implements AdminService {
     private final WalletTransactionMapper walletTransactionMapper;
     private final FavoriteMapper favoriteMapper;
     private final MessageMapper messageMapper;
+    private final MessagePublishService messagePublishService;
     private final PlayerShowCommentMapper playerShowCommentMapper;
     private final PlayerShowLikeMapper playerShowLikeMapper;
     private final SteamSyncTaskMapper steamSyncTaskMapper;
@@ -261,8 +263,14 @@ public class AdminServiceImpl implements AdminService {
 
     @Transactional(rollbackFor = Exception.class)
     public boolean auditWithdrawal(Long withdrawalId, Integer status, String reason) {
-        if (withdrawalMapper.selectById(withdrawalId) == null) throw new RuntimeException("提现记录不存在");
-        return withdrawalMapper.updateStatus(withdrawalId, status, reason) > 0;
+        Withdrawal withdrawal = withdrawalMapper.selectById(withdrawalId);
+        if (withdrawal == null) throw new RuntimeException("提现记录不存在");
+
+        boolean updated = withdrawalMapper.updateStatus(withdrawalId, status, reason) > 0;
+        if (updated && withdrawal.getUserId() != null) {
+            sendWithdrawalAuditMessage(withdrawal, status, reason);
+        }
+        return updated;
     }
 
     public Map<String, Object> getFavorites(Integer page, Integer size, Long userId, Integer type, Long targetId) {
@@ -294,17 +302,8 @@ public class AdminServiceImpl implements AdminService {
 
     @Transactional(rollbackFor = Exception.class)
     public Message sendSystemMessage(Message message) {
-        if (message.getUserId() == null) throw new RuntimeException("接收用户不能为空");
         requireUser(message.getUserId());
-        if (blank(message.getTitle())) message.setTitle("系统通知");
-        if (blank(message.getContent())) throw new RuntimeException("消息内容不能为空");
-        message.setType(Message.TYPE_SYSTEM);
-        message.setSubType(message.getSubType() == null ? 3 : message.getSubType());
-        message.setStatus(0);
-        message.setSenderName("系统");
-        message.setCreatedAt(LocalDateTime.now());
-        messageMapper.createMessage(message);
-        return message;
+        return messagePublishService.sendSystemMessage(message);
     }
 
     public Map<String, Object> getStatistics() {
@@ -441,8 +440,14 @@ public class AdminServiceImpl implements AdminService {
 
     @Transactional(rollbackFor = Exception.class)
     public boolean auditNews(Long newsId, Integer status, String reason) {
-        if (newsMapper.selectById(newsId) == null) throw new RuntimeException("资讯不存在");
-        return newsMapper.updateStatus(newsId, status, reason) > 0;
+        News news = newsMapper.selectById(newsId);
+        if (news == null) throw new RuntimeException("资讯不存在");
+
+        boolean updated = newsMapper.updateStatus(newsId, status, reason) > 0;
+        if (updated && news.getUserId() != null) {
+            sendNewsAuditMessage(news, status, reason);
+        }
+        return updated;
     }
 
     @Transactional(rollbackFor = Exception.class)
@@ -576,5 +581,62 @@ public class AdminServiceImpl implements AdminService {
 
     private boolean blank(String value) {
         return value == null || value.trim().isEmpty();
+    }
+
+    private void sendWithdrawalAuditMessage(Withdrawal withdrawal, Integer status, String reason) {
+        String amount = messagePublishService.formatMoneyWithSymbol(withdrawal.getAmount());
+        if (Objects.equals(status, 1)) {
+            messagePublishService.sendSystemMessage(
+                    withdrawal.getUserId(),
+                    1,
+                    "提现申请已通过",
+                    "你的提现申请 #" + withdrawal.getId() + " 已审核通过，金额 " + amount + " 将按流程打款，请留意到账情况。"
+            );
+            return;
+        }
+
+        if (Objects.equals(status, 2)) {
+            messagePublishService.sendSystemMessage(
+                    withdrawal.getUserId(),
+                    1,
+                    "提现申请未通过",
+                    "你的提现申请 #" + withdrawal.getId() + " 未通过审核。"
+                            + (blank(reason) ? "如有疑问请联系管理员。" : "原因：" + reason)
+            );
+        }
+    }
+
+    private void sendNewsAuditMessage(News news, Integer status, String reason) {
+        if (Objects.equals(status, 1)) {
+            messagePublishService.sendSystemMessage(
+                    news.getUserId(),
+                    3,
+                    "资讯审核已通过",
+                    "你提交的资讯《" + firstNonBlank(news.getTitle(), "未命名资讯") + "》已审核通过，现已发布。"
+            );
+            return;
+        }
+
+        if (Objects.equals(status, 2)) {
+            messagePublishService.sendSystemMessage(
+                    news.getUserId(),
+                    1,
+                    "资讯审核未通过",
+                    "你提交的资讯《" + firstNonBlank(news.getTitle(), "未命名资讯") + "》未通过审核。"
+                            + (blank(reason) ? "请修改后重新提交。" : "原因：" + reason)
+            );
+        }
+    }
+
+    private String firstNonBlank(String... values) {
+        if (values == null) {
+            return "";
+        }
+        for (String value : values) {
+            if (value != null && !value.isBlank()) {
+                return value;
+            }
+        }
+        return "";
     }
 }

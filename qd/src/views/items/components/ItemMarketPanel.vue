@@ -3,98 +3,96 @@
     <div class="panel-head">
       <div>
         <h3>{{ panelTitle }}</h3>
+        <p v-if="panelSubtitle">{{ panelSubtitle }}</p>
       </div>
-      <span class="source-tag" :class="`source-tag-${trendSource}`">{{ trendSourceText }}</span>
+      <span v-if="activeView !== 'trades'" class="source-tag" :class="`source-tag-${trendSource}`">{{ trendSourceText }}</span>
     </div>
-    <p v-if="marketNote" class="panel-note">{{ marketNote }}</p>
+    <p v-if="marketNote && activeView !== 'pricing'" class="panel-note">{{ marketNote }}</p>
 
-    <div v-if="activeView === 'trend'" class="range-switch">
-      <button
-        v-for="option in rangeOptions"
-        :key="option.key"
-        type="button"
-        class="range-button"
-        :class="{ active: activeRange === option.key }"
-        @click="activeRange = option.key"
-      >
-        {{ option.label }}
-      </button>
-    </div>
-
-    <div v-if="activeView === 'trend'" class="chart-panel">
-      <div v-if="currentTrend.length" class="trend-summary">
-        <span>{{ trendSummaryLabel }}</span>
-        <strong>¥ {{ formatPrice(latestTrendPoint?.price) }}</strong>
+    <template v-if="activeView === 'trend'">
+      <div class="range-switch">
+        <button
+          v-for="option in rangeOptions"
+          :key="option.key"
+          type="button"
+          class="range-button"
+          :class="{ active: activeRange === option.key }"
+          @click="activeRange = option.key"
+        >
+          {{ option.label }}
+        </button>
       </div>
-      <v-chart v-if="currentTrend.length" class="trend-chart" :option="chartOption" autoresize />
-      <el-empty v-else description="暂无价格走势数据" />
-    </div>
 
-    <div v-if="activeView === 'pricing'" class="metrics-grid">
-      <article class="metric-card metric-card-highlight">
-        <span>建议卖价</span>
-        <strong>¥ {{ formatPrice(suggestedSellPrice) }}</strong>
-      </article>
-      <article class="metric-card">
-        <span>建议买价</span>
-        <strong>¥ {{ formatPrice(suggestedBuyPrice) }}</strong>
-      </article>
-      <article class="metric-card">
-        <span>近7日均价</span>
-        <strong>¥ {{ formatPrice(panelData?.avgTradePrice7d) }}</strong>
-      </article>
-      <article class="metric-card">
-        <span>当前售价</span>
-        <strong>¥ {{ formatPrice(currentReferencePrice) }}</strong>
-      </article>
-      <article class="metric-card">
-        <span>最低在售</span>
-        <strong>¥ {{ formatPrice(lowestSellPrice) }}</strong>
-      </article>
-      <article class="metric-card">
-        <span>最高求购</span>
-        <strong>¥ {{ formatPrice(highestBuyPriceValue) }}</strong>
-      </article>
-    </div>
+      <div class="chart-panel">
+        <div v-if="currentTrend.length" class="trend-summary">
+          <span>{{ trendSummaryLabel }}</span>
+          <strong>{{ moneyText(latestTrendPoint?.price) }}</strong>
+        </div>
+        <v-chart v-if="currentTrend.length" class="trend-chart" :option="chartOption" autoresize />
+        <el-empty v-else description="暂无价格走势数据" />
+      </div>
+    </template>
 
-    <p v-if="activeView === 'pricing' && referencePriceSourceText" class="basis-note">
-      当前参考价来源：{{ referencePriceSourceText }}
-    </p>
+    <template v-if="activeView === 'pricing'">
+      <div class="pricing-board">
+        <section class="pricing-lead">
+          <div class="lead-top">
+            <span class="lead-icon">
+              <el-icon><Money /></el-icon>
+            </span>
+            <span>{{ pricingConfidenceText }}</span>
+          </div>
+          <span class="lead-label">建议卖价</span>
+          <strong>{{ moneyText(suggestedSellPrice) }}</strong>
+          <p>{{ pricingActionText }}</p>
+          <div class="lead-meta">
+            <span>{{ currentReferenceLabel }} {{ moneyText(currentReferencePrice) }}</span>
+            <span>{{ priceGapText }}</span>
+          </div>
+        </section>
 
-    <p v-if="activeView === 'pricing' && pricingBasis" class="basis-note">
-      {{ pricingBasis }}
-    </p>
+        <section class="pricing-side">
+          <article>
+            <span>建议买价</span>
+            <strong>{{ moneyText(suggestedBuyPrice) }}</strong>
+            <em>{{ buyDiscountText }}</em>
+          </article>
+          <article>
+            <span>最低在售</span>
+            <strong>{{ moneyText(lowestSellPrice) }}</strong>
+            <em>{{ lowestSellPrice ? '当前卖盘底价' : '暂无站内卖盘' }}</em>
+          </article>
+        </section>
+      </div>
 
-    <div v-if="activeView === 'pricing'" class="change-row">
-      <div class="change-pill" :class="getChangeClass(panelData?.priceChange7d)">
-        7日涨跌 {{ formatPercent(panelData?.priceChange7d) }}
+      <div class="metric-strip">
+        <article
+          v-for="metric in pricingMetrics"
+          :key="metric.label"
+          class="metric-item"
+          :class="metric.tone"
+        >
+          <span>{{ metric.label }}</span>
+          <strong>{{ metric.value }}</strong>
+          <em>{{ metric.detail }}</em>
+        </article>
       </div>
-      <div class="change-pill" :class="getChangeClass(panelData?.priceChange30d)">
-        30日涨跌 {{ formatPercent(panelData?.priceChange30d) }}
-      </div>
-    </div>
 
-    <div v-if="activeView === 'pricing'" class="score-grid">
-      <div class="score-item">
-        <span>热度</span>
-        <strong>{{ safeScore(panelData?.heatScore) }}</strong>
+      <div class="score-grid">
+        <article v-for="score in scoreMetrics" :key="score.label" class="score-item">
+          <div>
+            <span>{{ score.label }}</span>
+            <strong>{{ score.value }}</strong>
+          </div>
+          <div class="score-track">
+            <i :style="{ width: `${score.value}%` }"></i>
+          </div>
+          <em>{{ score.hint }}</em>
+        </article>
       </div>
-      <div class="score-item">
-        <span>流动性</span>
-        <strong>{{ safeScore(panelData?.liquidityScore) }}</strong>
-      </div>
-      <div class="score-item">
-        <span>波动性</span>
-        <strong>{{ safeScore(panelData?.volatilityScore) }}</strong>
-      </div>
-    </div>
+    </template>
 
     <section v-if="activeView === 'trades'" class="trade-section">
-      <div class="trade-section-head">
-        <h4>最近成交</h4>
-        <span>{{ recentTrades.length }} 条</span>
-      </div>
-
       <div v-if="!recentTrades.length && !loading" class="trade-empty">
         <el-empty description="当前饰品暂无完成成交" />
       </div>
@@ -106,7 +104,7 @@
           <span>时间</span>
         </div>
         <div v-for="trade in recentTrades" :key="`${trade.completedAt}-${trade.price}`" class="trade-row">
-          <strong>¥ {{ formatPrice(trade.price) }}</strong>
+          <strong>{{ moneyText(trade.price) }}</strong>
           <em>本站成交</em>
           <span>{{ formatDate(trade.completedAt) }}</span>
         </div>
@@ -118,6 +116,7 @@
 <script setup>
 import { computed, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
+import { Money } from '@element-plus/icons-vue'
 import VChart from 'vue-echarts'
 import { use } from 'echarts/core'
 import { CanvasRenderer } from 'echarts/renderers'
@@ -196,11 +195,11 @@ const currentReferencePrice = computed(() => toPositiveNumber(
   panelData.value?.highestBuyPrice
 ))
 const referencePriceSource = computed(() => panelData.value?.referencePriceSource || '')
-const referencePriceSourceText = computed(() => {
-  if (referencePriceSource.value === 'steam') return 'Steam参考价'
-  if (referencePriceSource.value === 'buff') return 'Buff回退'
-  if (referencePriceSource.value === 'local') return '站内参考'
-  return ''
+const currentReferenceLabel = computed(() => {
+  if (referencePriceSource.value === 'steam') return 'Steam售价'
+  if (referencePriceSource.value === 'buff') return 'Buff售价'
+  if (referencePriceSource.value === 'local') return '站内售价'
+  return '当前售价'
 })
 const lowestSellPrice = computed(() => toPositiveNumber(panelData.value?.lowestSellPrice || props.fallbackPrice))
 const highestBuyPriceValue = computed(() => toPositiveNumber(panelData.value?.highestBuyPrice || props.highestBuyPrice))
@@ -235,10 +234,15 @@ const panelTitle = computed(() => {
   if (props.activeView === 'pricing') return '定价建议'
   return '价格走势'
 })
+const panelSubtitle = computed(() => {
+  if (props.activeView === 'pricing') return '先看建议价，再用盘口和分数判断挂单策略。'
+  if (props.activeView === 'trades') return ''
+  return ''
+})
 const trendSourceText = computed(() => {
   if (trendSource.value === 'steam') return 'Steam 走势'
   if (trendSource.value === 'reference') return '参考价线'
-  return '本站回退'
+  return '本站成交'
 })
 const trendSummaryLabel = computed(() => {
   if (trendSource.value === 'steam') return '最新 Steam 走势价'
@@ -247,24 +251,90 @@ const trendSummaryLabel = computed(() => {
 })
 const marketNote = computed(() => {
   if (props.activeView === 'trades') {
-    return '最近成交仅统计本站已完成订单。'
+    return ''
   }
   if (props.activeView === 'pricing') {
     return ''
   }
   if (panelData.value?.dataNote) return stripRecentTradeNote(panelData.value.dataNote)
   if (trendSource.value === 'reference') {
-    return '暂无可用 Steam 历史和本站成交趋势，已按当前售价绘制参考价线。'
+    return `暂无可用 Steam 历史和本站成交趋势，已按${currentReferenceLabel.value}绘制参考价线。`
   }
   return ''
 })
-const pricingBasis = computed(() => {
-  if (panelData.value?.pricingBasis) return panelData.value.pricingBasis
-  if (trendSource.value === 'reference') {
-    return '当前暂无完成成交记录，建议卖价先参考当前售价，建议买价按 95% 估算。'
-  }
-  return ''
+const pricingConfidenceText = computed(() => {
+  if (recentTrades.value.length >= 3) return '成交样本较足'
+  if (trendSource.value === 'steam') return 'Steam 数据参考'
+  if (trendSource.value === 'reference') return '参考价估算'
+  return '本站样本参考'
 })
+const pricingActionText = computed(() => {
+  if (!suggestedSellPrice.value) return '缺少可用价格，建议先同步行情后再定价。'
+  if (safeScore(panelData.value?.volatilityScore) >= 65) return '波动偏高，建议低于最低在售小幅挂单，避免价格回落。'
+  if (highestBuyPriceValue.value && suggestedSellPrice.value) {
+    const gap = (suggestedSellPrice.value - highestBuyPriceValue.value) / suggestedSellPrice.value
+    if (gap >= 0 && gap <= 0.03) return '最高求购接近建议卖价，可优先考虑快速成交。'
+  }
+  if (safeScore(panelData.value?.heatScore) >= 60 && safeScore(panelData.value?.liquidityScore) >= 60) {
+    return '热度和流动性较好，可按建议价挂单并观察买盘。'
+  }
+  return '行情相对平稳，建议按参考价挂单，后续根据浏览和求购变化调整。'
+})
+const buyDiscountText = computed(() => {
+  if (!suggestedSellPrice.value || !suggestedBuyPrice.value) return '暂无买入估算'
+  const ratio = (suggestedBuyPrice.value / suggestedSellPrice.value) * 100
+  return `约为卖价 ${ratio.toFixed(0)}%`
+})
+const priceGapText = computed(() => {
+  if (!suggestedSellPrice.value || !lowestSellPrice.value) return '暂无卖盘差距'
+  const gap = suggestedSellPrice.value - lowestSellPrice.value
+  if (Math.abs(gap) < 0.01) return '与最低在售持平'
+  const percent = (gap / lowestSellPrice.value) * 100
+  return `${gap > 0 ? '高于' : '低于'}最低在售 ${Math.abs(percent).toFixed(1)}%`
+})
+const pricingMetrics = computed(() => [
+  {
+    label: '近7日均价',
+    value: moneyText(panelData.value?.avgTradePrice7d),
+    detail: recentTrades.value.length ? `${recentTrades.value.length} 条成交样本` : '暂无成交样本',
+    tone: ''
+  },
+  {
+    label: '最高求购',
+    value: moneyText(highestBuyPriceValue.value),
+    detail: highestBuyPriceValue.value ? '买盘上限' : '暂无求购',
+    tone: ''
+  },
+  {
+    label: '7日涨跌',
+    value: formatPercent(panelData.value?.priceChange7d),
+    detail: '短期变化',
+    tone: getChangeClass(panelData.value?.priceChange7d)
+  },
+  {
+    label: '30日涨跌',
+    value: formatPercent(panelData.value?.priceChange30d),
+    detail: '月度变化',
+    tone: getChangeClass(panelData.value?.priceChange30d)
+  }
+])
+const scoreMetrics = computed(() => [
+  {
+    label: '热度',
+    value: safeScore(panelData.value?.heatScore),
+    hint: getScoreHint('heat', panelData.value?.heatScore)
+  },
+  {
+    label: '流动性',
+    value: safeScore(panelData.value?.liquidityScore),
+    hint: getScoreHint('liquidity', panelData.value?.liquidityScore)
+  },
+  {
+    label: '波动性',
+    value: safeScore(panelData.value?.volatilityScore),
+    hint: getScoreHint('volatility', panelData.value?.volatilityScore)
+  }
+])
 
 const chartOption = computed(() => ({
   grid: {
@@ -279,7 +349,7 @@ const chartOption = computed(() => ({
     formatter: (params) => {
       const point = params?.[0]
       if (!point) return ''
-      return `${point.axisValue}<br/>价格: ¥ ${formatPrice(point.data)}`
+      return `${point.axisValue}<br/>价格: ${moneyText(point.data)}`
     }
   },
   xAxis: {
@@ -294,7 +364,7 @@ const chartOption = computed(() => ({
     type: 'value',
     axisLabel: {
       color: '#64748b',
-      formatter: (value) => `¥ ${Number(value || 0).toFixed(2)}`
+      formatter: (value) => moneyText(value)
     },
     splitLine: {
       lineStyle: {
@@ -310,10 +380,10 @@ const chartOption = computed(() => ({
       symbolSize: 7,
       lineStyle: {
         width: 3,
-        color: '#f59e0b'
+        color: '#2563eb'
       },
       itemStyle: {
-        color: '#2563eb'
+        color: '#f59e0b'
       },
       areaStyle: {
         color: 'rgba(37, 99, 235, 0.12)'
@@ -326,6 +396,11 @@ const chartOption = computed(() => ({
 const formatPrice = (value) => {
   const numeric = Number(value)
   return Number.isFinite(numeric) && numeric > 0 ? numeric.toFixed(2) : '--'
+}
+
+const moneyText = (value) => {
+  const price = formatPrice(value)
+  return price === '--' ? '--' : `¥ ${price}`
 }
 
 const formatPercent = (value) => {
@@ -346,7 +421,19 @@ const formatDate = (value) => {
 
 const safeScore = (value) => {
   const numeric = Number(value)
-  return Number.isFinite(numeric) ? numeric : 0
+  return Number.isFinite(numeric) ? Math.max(0, Math.min(100, Math.round(numeric))) : 0
+}
+
+const getScoreHint = (type, value) => {
+  const score = safeScore(value)
+  if (type === 'volatility') {
+    if (score >= 65) return '波动偏高'
+    if (score >= 35) return '波动适中'
+    return '价格较稳'
+  }
+  if (score >= 70) return '表现较强'
+  if (score >= 40) return '表现一般'
+  return '样本偏少'
 }
 
 const getChangeClass = (value) => {
@@ -386,18 +473,26 @@ const fetchPanel = async () => {
 }
 
 watch(() => props.itemId, fetchPanel, { immediate: true })
+watch(() => props.activeView, (activeView, previousView) => {
+  if (activeView === 'pricing' && previousView !== 'pricing') {
+    fetchPanel()
+  }
+})
 </script>
 
 <style scoped>
 .market-panel {
   min-height: 420px;
-  padding: 34px 56px 50px;
+  padding: 34px 48px 46px;
   background: #ffffff;
 }
 
 .panel-head,
 .trade-section-head,
-.change-row,
+.trend-summary,
+.lead-top,
+.lead-meta,
+.metric-strip,
 .score-grid {
   display: flex;
   align-items: center;
@@ -416,10 +511,10 @@ watch(() => props.itemId, fetchPanel, { immediate: true })
   line-height: 1.25;
 }
 
+.panel-head p,
 .panel-note,
-.basis-note,
-.trade-empty p {
-  margin: 12px 0 0;
+.trade-section-head p {
+  margin: 8px 0 0;
   color: #64748b;
   font-size: 13px;
   line-height: 1.7;
@@ -428,6 +523,7 @@ watch(() => props.itemId, fetchPanel, { immediate: true })
 .source-tag {
   display: inline-flex;
   align-items: center;
+  flex: none;
   padding: 6px 10px;
   border-radius: 999px;
   font-size: 12px;
@@ -477,15 +573,11 @@ watch(() => props.itemId, fetchPanel, { immediate: true })
   padding: 24px 30px 18px;
   min-height: 430px;
   border: 1px solid #eef2f7;
-  border-radius: 2px;
+  border-radius: 8px;
   background: #ffffff;
 }
 
 .trend-summary {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
   padding: 0 4px 8px;
 }
 
@@ -504,109 +596,211 @@ watch(() => props.itemId, fetchPanel, { immediate: true })
   height: 380px;
 }
 
-.metrics-grid {
+.pricing-board {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 18px;
+  grid-template-columns: minmax(0, 1.35fr) minmax(280px, 0.75fr);
+  gap: 16px;
   margin-top: 24px;
 }
 
-.metric-card {
-  min-height: 98px;
-  padding: 20px 22px;
+.pricing-lead,
+.pricing-side article,
+.metric-item,
+.score-item {
   border: 1px solid #e5e7eb;
-  border-radius: 2px;
+  border-radius: 8px;
   background: #ffffff;
 }
 
-.metric-card-highlight {
-  border-color: rgba(245, 158, 11, 0.35);
-  background: linear-gradient(180deg, rgba(245, 158, 11, 0.08), rgba(255, 255, 255, 1));
+.pricing-lead {
+  min-height: 220px;
+  padding: 24px 26px;
+  background:
+    linear-gradient(135deg, rgba(37, 99, 235, 0.08), transparent 36%),
+    linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
 }
 
-.metric-card span,
+.lead-top {
+  justify-content: flex-start;
+  color: #475569;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.lead-icon {
+  display: inline-grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 8px;
+  background: #172033;
+  color: #ffffff;
+}
+
+.lead-label {
+  display: block;
+  margin-top: 24px;
+  color: #64748b;
+  font-size: 13px;
+}
+
+.pricing-lead strong {
+  display: block;
+  margin-top: 8px;
+  color: #0f172a;
+  font-size: clamp(34px, 4vw, 52px);
+  line-height: 1;
+}
+
+.pricing-lead p {
+  max-width: 660px;
+  margin: 16px 0 0;
+  color: #334155;
+  font-size: 14px;
+  line-height: 1.7;
+}
+
+.lead-meta {
+  justify-content: flex-start;
+  flex-wrap: wrap;
+  margin-top: 18px;
+}
+
+.lead-meta span {
+  padding: 6px 10px;
+  border-radius: 999px;
+  background: #eef2ff;
+  color: #2563eb;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.pricing-side {
+  display: grid;
+  gap: 14px;
+}
+
+.pricing-side article {
+  min-height: 103px;
+  padding: 18px 20px;
+}
+
+.pricing-side span,
+.metric-item span,
 .score-item span,
-.trade-row span {
+.trade-row span,
+.trade-row em {
   display: block;
   color: #64748b;
   font-size: 12px;
 }
 
-.metric-card strong,
-.score-item strong,
-.trade-row strong {
+.pricing-side strong {
+  display: block;
+  margin-top: 8px;
+  color: #172033;
+  font-size: 26px;
+  line-height: 1;
+}
+
+.pricing-side em,
+.metric-item em,
+.score-item em {
+  display: block;
+  margin-top: 10px;
+  color: #94a3b8;
+  font-size: 12px;
+  font-style: normal;
+}
+
+.metric-strip {
+  margin-top: 14px;
+  align-items: stretch;
+}
+
+.metric-item {
+  flex: 1;
+  min-width: 0;
+  padding: 16px;
+  background: #f8fafc;
+}
+
+.metric-item strong {
+  display: block;
+  margin-top: 8px;
   color: #172033;
   font-size: 20px;
+  line-height: 1;
 }
 
-.trade-row strong {
-  color: #f59e0b;
-}
-
-.change-row {
-  margin-top: 14px;
-}
-
-.change-pill {
-  flex: 1;
-  padding: 10px 12px;
-  border-radius: 2px;
-  text-align: center;
-  font-size: 13px;
-  font-weight: 700;
-}
-
-.change-pill.positive {
-  background: rgba(34, 197, 94, 0.12);
+.metric-item.positive strong {
   color: #15803d;
 }
 
-.change-pill.negative {
-  background: rgba(239, 68, 68, 0.12);
+.metric-item.negative strong {
   color: #b91c1c;
-}
-
-.change-pill.neutral {
-  background: #f1f5f9;
-  color: #475569;
 }
 
 .score-grid {
   margin-top: 14px;
+  align-items: stretch;
 }
 
 .score-item {
   flex: 1;
-  padding: 14px 16px;
-  border-radius: 2px;
-  background: #111827;
-  color: #ffffff;
+  min-width: 0;
+  padding: 16px;
+}
+
+.score-item > div:first-child {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
 }
 
 .score-item strong {
-  color: #ffffff;
+  color: #172033;
+  font-size: 24px;
+  line-height: 1;
+}
+
+.score-track {
+  height: 7px;
+  margin-top: 13px;
+  border-radius: 999px;
+  background: #e5e7eb;
+  overflow: hidden;
+}
+
+.score-track i {
+  display: block;
+  height: 100%;
+  min-width: 4px;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #2563eb, #f59e0b);
 }
 
 .trade-section {
   margin-top: 24px;
-  padding: 0;
   border: 1px solid #eef2f7;
-  border-radius: 2px;
+  border-radius: 8px;
   background: #ffffff;
+  overflow: hidden;
 }
 
 .trade-section-head {
-  min-height: 54px;
-  padding: 0 22px;
+  min-height: 70px;
+  padding: 14px 22px;
   background: #f8fafc;
   border-bottom: 1px solid #eef2f7;
 }
 
-.trade-section-head span,
-.trade-row em {
-  color: #94a3b8;
-  font-size: 12px;
-  font-style: normal;
+.trade-section-head span {
+  flex: none;
+  color: #2563eb;
+  font-size: 13px;
+  font-weight: 800;
 }
 
 .trade-list {
@@ -633,11 +827,6 @@ watch(() => props.itemId, fetchPanel, { immediate: true })
   padding-bottom: 8px;
 }
 
-.trade-empty p {
-  padding: 0 18px;
-  text-align: center;
-}
-
 .trade-row {
   padding: 18px 22px;
   border-bottom: 1px solid #eef2f7;
@@ -647,21 +836,49 @@ watch(() => props.itemId, fetchPanel, { immediate: true })
   border-bottom: 0;
 }
 
+.trade-row strong {
+  color: #f59e0b;
+  font-size: 20px;
+}
+
+.trade-row em {
+  font-style: normal;
+}
+
+@media (max-width: 1024px) {
+  .market-panel {
+    padding: 28px 24px 32px;
+  }
+
+  .pricing-board {
+    grid-template-columns: 1fr;
+  }
+
+  .metric-strip,
+  .score-grid {
+    flex-wrap: wrap;
+  }
+
+  .metric-item,
+  .score-item {
+    flex-basis: calc(50% - 8px);
+  }
+}
+
 @media (max-width: 768px) {
   .market-panel {
-    padding: 16px;
+    padding: 18px;
   }
 
   .panel-head,
-  .trade-section-head,
-  .change-row,
-  .score-grid {
+  .trade-section-head {
     flex-direction: column;
     align-items: stretch;
   }
 
-  .metrics-grid {
-    grid-template-columns: 1fr;
+  .metric-item,
+  .score-item {
+    flex-basis: 100%;
   }
 
   .trend-chart {

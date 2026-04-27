@@ -69,7 +69,7 @@ public class TradeOrder implements Serializable {
      * 订单状态
      * 0: 待确认
      * 1: 报价中
-     * 2: 待发货
+     * 2: 待买家发送 Steam 报价
      * 3: 待收货
      * 4: 已完成
      * 5: 已取消
@@ -138,7 +138,7 @@ public class TradeOrder implements Serializable {
     private LocalDateTime paidAt;
 
     /**
-     * 发货时间
+     * 报价检测时间
      */
     private LocalDateTime sentAt;
 
@@ -192,7 +192,7 @@ public class TradeOrder implements Serializable {
     /** 状态 - 报价中 */
     public static final int STATUS_OFFERING = 1;
 
-    /** 状态 - 待发货 */
+    /** 状态 - 待买家报价 */
     public static final int STATUS_PAID = 2;
 
     /** 状态 - 待收货 */
@@ -208,6 +208,7 @@ public class TradeOrder implements Serializable {
     public static final int STATUS_DISPUTE = 6;
 
     public static final String DELIVERY_STAGE_NONE = "NONE";
+    public static final String DELIVERY_STAGE_BUYER_OFFER_SENT = "BUYER_OFFER_SENT";
     public static final String DELIVERY_STAGE_SELLER_OFFER_SENT = "SELLER_OFFER_SENT";
     public static final String DELIVERY_STAGE_SELLER_CONFIRMED = "SELLER_CONFIRMED";
     public static final String DELIVERY_STAGE_OFFER_ACCEPTED = "OFFER_ACCEPTED";
@@ -220,7 +221,7 @@ public class TradeOrder implements Serializable {
         switch (status) {
             case STATUS_PENDING: return "待确认";
             case STATUS_OFFERING: return "报价中";
-            case STATUS_PAID: return "待发货";
+            case STATUS_PAID: return "待买家报价";
             case STATUS_SENT: return "待收货";
             case STATUS_COMPLETED: return "已完成";
             case STATUS_CANCELLED: return "已取消";

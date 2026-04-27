@@ -1,5 +1,6 @@
 package com.cs2trade.entity;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import lombok.Data;
 
 import java.io.Serializable;
@@ -42,6 +43,7 @@ public class User implements Serializable {
     /**
      * 密码 - BCrypt加密存储
      */
+    @JsonIgnore
     private String password;
 
     /**
@@ -62,6 +64,7 @@ public class User implements Serializable {
     /**
      * Steam API Key - 用于库存同步等功能
      */
+    @JsonIgnore
     private String steamApiKey;
 
     /**

@@ -12,6 +12,7 @@ import com.cs2trade.service.InspectMetadataService;
 import com.cs2trade.service.SteamInventoryService;
 import com.cs2trade.util.InventoryExteriorResolver;
 import com.cs2trade.util.SteamApiClient;
+import com.cs2trade.util.SteamItemIdentityUtils;
 import com.cs2trade.util.SteamInspectLinkResolver;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -310,15 +311,11 @@ public class SteamInventoryServiceImpl implements SteamInventoryService {
 
             // 获取图标URL
             String iconUrl = description.getString("icon_url");
-            if (iconUrl != null && !iconUrl.isEmpty()) {
-                inventory.setIconUrl(STEAM_IMAGE_URL + iconUrl);
-            }
+            inventory.setIconUrl(SteamItemIdentityUtils.normalizeSteamIconUrl(iconUrl));
 
             // 获取大图URL
             String iconUrlLarge = description.getString("icon_url_large");
-            if (iconUrlLarge != null && !iconUrlLarge.isEmpty()) {
-                inventory.setIconUrlLarge(STEAM_IMAGE_URL + iconUrlLarge);
-            }
+            inventory.setIconUrlLarge(SteamItemIdentityUtils.normalizeSteamIconUrl(iconUrlLarge));
 
             // 检查是否可交易
             Integer tradable = description.getInteger("tradable");
@@ -342,7 +339,8 @@ public class SteamInventoryServiceImpl implements SteamInventoryService {
                 }
             }
             if (matchedItem != null) {
-                ensureSteamMarketHashName(matchedItem, marketHashName);
+                backfillSteamCatalogMetadataFromInventory(matchedItem, inventory);
+                registerItemAliases(itemMap, matchedItem);
                 inventory.setItemId(matchedItem.getId());
                 inventory.setItem(matchedItem);
                 inventory.setMarketPrice(resolveReferencePrice(matchedItem));
@@ -1009,17 +1007,46 @@ public class SteamInventoryServiceImpl implements SteamInventoryService {
         return buffPrice != null && buffPrice.compareTo(BigDecimal.ZERO) > 0 ? buffPrice : BigDecimal.ZERO;
     }
 
-    private void ensureSteamMarketHashName(Item item, String marketHashName) {
-        if (item == null || item.getId() == null || marketHashName == null || marketHashName.isBlank()
-                || marketHashName.equals(item.getSteamMarketHashName())) {
+    private void backfillSteamCatalogMetadataFromInventory(Item item, UserInventory inventory) {
+        if (item == null || item.getId() == null || inventory == null) {
             return;
         }
 
+        String marketHashName = inventory.getMarketHashName();
+        String preferredInventoryIcon = SteamItemIdentityUtils.firstUsableIconUrl(
+                inventory.getIconUrlLarge(),
+                inventory.getIconUrl()
+        );
+        String steamMarketUrl = SteamItemIdentityUtils.buildSteamMarketUrl(marketHashName);
+
         Item update = new Item();
         update.setId(item.getId());
-        update.setSteamMarketHashName(marketHashName);
-        itemMapper.updateById(update);
-        item.setSteamMarketHashName(marketHashName);
+        boolean changed = false;
+
+        if (marketHashName != null && !marketHashName.isBlank()
+                && !marketHashName.equals(item.getSteamMarketHashName())) {
+            update.setSteamMarketHashName(marketHashName);
+            item.setSteamMarketHashName(marketHashName);
+            changed = true;
+        }
+
+        if (steamMarketUrl != null && !steamMarketUrl.equals(item.getSteamMarketUrl())) {
+            update.setSteamMarketUrl(steamMarketUrl);
+            item.setSteamMarketUrl(steamMarketUrl);
+            changed = true;
+        }
+
+        if (preferredInventoryIcon != null
+                && !SteamItemIdentityUtils.isUsableItemIconUrl(item.getIconUrl())
+                && !preferredInventoryIcon.equals(item.getIconUrl())) {
+            update.setIconUrl(preferredInventoryIcon);
+            item.setIconUrl(preferredInventoryIcon);
+            changed = true;
+        }
+
+        if (changed) {
+            itemMapper.updateById(update);
+        }
     }
 
     private Item createItemFromInventory(String marketHashName, UserInventory inventory) {
@@ -1041,8 +1068,13 @@ public class SteamInventoryServiceImpl implements SteamInventoryService {
         item.setQuality(firstNonBlank(inventory.getRarity(), "common"));
         item.setRarity(firstNonBlank(inventory.getRarity(), "common"));
         item.setExterior(inventory.getExterior());
-        item.setIconUrl(inventory.getIconUrl());
+        item.setIconUrl(firstNonBlank(
+                SteamItemIdentityUtils.firstUsableIconUrl(inventory.getIconUrlLarge(), inventory.getIconUrl()),
+                inventory.getIconUrlLarge(),
+                inventory.getIconUrl()
+        ));
         item.setSteamMarketHashName(marketHashName);
+        item.setSteamMarketUrl(SteamItemIdentityUtils.buildSteamMarketUrl(marketHashName));
         item.setBuffPrice(BigDecimal.ZERO);
         item.setSteamReferenceCurrency(STEAM_REFERENCE_CURRENCY);
 
@@ -1119,12 +1151,7 @@ public class SteamInventoryServiceImpl implements SteamInventoryService {
     }
 
     private String normalizeLookupKey(String value) {
-        if (value == null) {
-            return null;
-        }
-
-        String key = value.trim().toLowerCase(Locale.ROOT);
-        return key.isBlank() ? null : key;
+        return SteamItemIdentityUtils.normalizeLookupKey(value);
     }
 
     private Item matchItem(Map<String, Item> itemMap, String... itemNames) {

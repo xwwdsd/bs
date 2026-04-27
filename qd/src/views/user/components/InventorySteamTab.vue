@@ -298,7 +298,7 @@
             <strong class="buff-sell-income-value">¥ {{ formatPrice(sellActualAmount) }}</strong>
             <span class="buff-sell-income-meta">(已扣除 ¥ {{ formatPrice(sellFeeAmount) }} 手续费)</span>
           </div>
-          <p class="buff-sell-note">订单创建后买家付款即可进入发货流程，请及时处理发货。</p>
+            <p class="buff-sell-note">订单创建后买家付款并发送 Steam 报价，系统会自动检测交易状态。</p>
           <div class="buff-sell-actions">
             <button type="button" class="buff-footer-button buff-footer-button-ghost" @click="marketSellDialogVisible = false">
               取消

@@ -13,7 +13,9 @@ const routes = [
   { path: '/items/order/:orderId', name: 'SellOrderDetail', component: () => import('@/views/items/detail.vue'), meta: { title: '在售详情' } },
   { path: '/items/:id', name: 'ItemDetail', component: () => import('@/views/items/detail.vue'), meta: { title: '饰品详情' } },
   { path: '/news', name: 'News', component: () => import('@/views/news/index.vue'), meta: { title: '资讯' } },
+  { path: '/news/:id', name: 'NewsDetail', component: () => import('@/views/news/detail.vue'), meta: { title: '资讯详情' } },
   { path: '/player-shows', name: 'PlayerShows', component: () => import('@/views/player-show/index.vue'), meta: { title: '玩家秀' } },
+  { path: '/player-shows/:id', name: 'PlayerShowDetail', component: () => import('@/views/player-show/detail.vue'), meta: { title: '玩家秀详情' } },
   { path: '/messages', name: 'Messages', component: () => import('@/views/messages/index.vue'), meta: { title: '消息中心', requireAuth: true } },
   {
     path: '/user',

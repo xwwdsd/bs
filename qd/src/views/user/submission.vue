@@ -2,50 +2,30 @@
   <div class="user-submissions">
     <div class="submissions-header">
       <h2>我的投稿</h2>
-      <el-button type="primary" @click="showCreateDialog = true">
+      <el-button type="primary" @click="openCreateDialog">
         <el-icon><Plus /></el-icon>
         发布文章
       </el-button>
     </div>
 
     <div class="submissions-tabs">
-      <div 
-        class="tab" 
-        :class="{ active: activeTab === 'all' }" 
-        @click="activeTab = 'all'"
-      >
+      <div class="tab" :class="{ active: activeTab === 'all' }" @click="activeTab = 'all'">
         全部
         <span class="count" v-if="totalCount > 0">({{ totalCount }})</span>
       </div>
-      <div 
-        class="tab" 
-        :class="{ active: activeTab === 'pending' }" 
-        @click="activeTab = 'pending'"
-      >
+      <div class="tab" :class="{ active: activeTab === 'pending' }" @click="activeTab = 'pending'">
         待审核
         <span class="badge warning" v-if="pendingCount > 0">{{ pendingCount }}</span>
       </div>
-      <div 
-        class="tab" 
-        :class="{ active: activeTab === 'approved' }" 
-        @click="activeTab = 'approved'"
-      >
+      <div class="tab" :class="{ active: activeTab === 'approved' }" @click="activeTab = 'approved'">
         已通过
         <span class="badge success" v-if="approvedCount > 0">{{ approvedCount }}</span>
       </div>
-      <div 
-        class="tab" 
-        :class="{ active: activeTab === 'rejected' }" 
-        @click="activeTab = 'rejected'"
-      >
+      <div class="tab" :class="{ active: activeTab === 'rejected' }" @click="activeTab = 'rejected'">
         已拒绝
         <span class="badge danger" v-if="rejectedCount > 0">{{ rejectedCount }}</span>
       </div>
-      <div 
-        class="tab" 
-        :class="{ active: activeTab === 'draft' }" 
-        @click="activeTab = 'draft'"
-      >
+      <div class="tab" :class="{ active: activeTab === 'draft' }" @click="activeTab = 'draft'">
         草稿箱
         <span class="badge info" v-if="draftCount > 0">{{ draftCount }}</span>
       </div>
@@ -55,11 +35,12 @@
       <div class="submission-list" v-if="filteredSubmissions.length > 0">
         <div class="submission-card" v-for="news in filteredSubmissions" :key="news.id">
           <div class="submission-cover">
-            <img :src="news.coverImage" v-if="news.coverImage" />
-            <div class="no-cover" v-else>
+            <img v-if="news.coverImage" :src="news.coverImage" />
+            <div v-else class="no-cover">
               <el-icon><Document /></el-icon>
             </div>
           </div>
+
           <div class="submission-content">
             <div class="submission-title">{{ news.title }}</div>
             <div class="submission-summary">{{ news.summary || '暂无摘要' }}</div>
@@ -78,6 +59,7 @@
               </span>
             </div>
           </div>
+
           <div class="submission-status">
             <el-tag :type="getStatusType(news.status)" size="small">
               {{ getStatusText(news.status) }}
@@ -86,11 +68,17 @@
               拒绝原因：{{ news.rejectReason }}
             </div>
           </div>
+
           <div class="submission-actions">
-            <el-button type="primary" size="small" @click="editNews(news)" v-if="news.status === 0 || news.status === 2">
+            <el-button
+              v-if="canEdit(news.status)"
+              type="primary"
+              size="small"
+              @click="editNews(news)"
+            >
               编辑
             </el-button>
-            <el-button size="small" @click="viewNews(news)" v-if="news.status === 1">
+            <el-button v-if="news.status === 1" size="small" @click="viewNews(news)">
               查看
             </el-button>
             <el-button size="small" type="danger" @click="handleDelete(news)">
@@ -103,26 +91,44 @@
       <div class="empty-state" v-else>
         <el-icon class="empty-icon"><EditPen /></el-icon>
         <div class="empty-text">
-          {{ activeTab === 'pending' ? '暂无待审核稿件' : 
-             activeTab === 'approved' ? '暂无已通过稿件' : 
-             activeTab === 'rejected' ? '暂无被拒绝稿件' : 
-             activeTab === 'draft' ? '草稿箱为空' : '暂无投稿' }}
+          {{
+            activeTab === 'pending'
+              ? '暂无待审核稿件'
+              : activeTab === 'approved'
+                ? '暂无已通过稿件'
+                : activeTab === 'rejected'
+                  ? '暂无被拒绝稿件'
+                  : activeTab === 'draft'
+                    ? '草稿箱为空'
+                    : '暂无投稿'
+          }}
         </div>
-        <el-button type="primary" @click="showCreateDialog = true">发布文章</el-button>
+        <el-button type="primary" @click="openCreateDialog">发布文章</el-button>
       </div>
     </div>
 
-    <!-- 发布/编辑文章弹窗 -->
-    <el-dialog 
-      v-model="showCreateDialog" 
-      :title="editingNews ? '编辑文章' : '发布文章'" 
+    <el-dialog
+      v-model="showCreateDialog"
+      :title="editingNews ? '修改文章' : '发布文章'"
       width="700px"
       :close-on-click-modal="false"
+      @closed="handleDialogClosed"
     >
-      <el-form :model="newsForm" label-width="80px" :rules="newsRules" ref="newsFormRef">
+      <el-alert
+        v-if="editingNews"
+        class="editing-alert"
+        title="你正在修改自己的文章"
+        description="保存后会按最新内容重新提交审核，封面、摘要和正文都会一起更新。"
+        type="info"
+        :closable="false"
+        show-icon
+      />
+
+      <el-form ref="newsFormRef" :model="newsForm" label-width="80px" :rules="newsRules">
         <el-form-item label="标题" prop="title">
           <el-input v-model="newsForm.title" placeholder="请输入文章标题" maxlength="100" show-word-limit />
         </el-form-item>
+
         <el-form-item label="分类" prop="category">
           <el-select v-model="newsForm.category" placeholder="请选择分类" style="width: 100%;">
             <el-option label="游戏资讯" value="游戏资讯" />
@@ -132,45 +138,43 @@
             <el-option label="官方公告" value="官方公告" />
           </el-select>
         </el-form-item>
+
         <el-form-item label="封面">
-          <el-upload
-            class="cover-uploader"
-            action=""
-            :http-request="uploadCover"
-            :show-file-list="false"
-            accept="image/*"
-          >
-            <img v-if="newsForm.coverImage" :src="newsForm.coverImage" class="cover-preview" />
-            <div v-else class="cover-placeholder">
-              <el-icon><Plus /></el-icon>
-              <span>上传封面</span>
-            </div>
-          </el-upload>
-        </el-form-item>
-        <el-form-item label="摘要">
-          <el-input 
-            v-model="newsForm.summary" 
-            type="textarea" 
-            :rows="2"
-            placeholder="请输入文章摘要（选填）" 
-            maxlength="200" 
-            show-word-limit 
+          <AdminImageUpload
+            v-model="newsForm.coverImage"
+            :width="200"
+            :height="120"
+            tip="建议上传文章封面，资讯列表和审核列表都会展示缩略图"
+            button-text="上传封面"
           />
         </el-form-item>
+
+        <el-form-item label="摘要">
+          <el-input
+            v-model="newsForm.summary"
+            type="textarea"
+            :rows="2"
+            placeholder="请输入文章摘要（选填）"
+            maxlength="200"
+            show-word-limit
+          />
+        </el-form-item>
+
         <el-form-item label="内容" prop="content">
-          <el-input 
-            v-model="newsForm.content" 
-            type="textarea" 
+          <el-input
+            v-model="newsForm.content"
+            type="textarea"
             :rows="8"
-            placeholder="请输入文章内容" 
+            placeholder="请输入文章内容"
           />
         </el-form-item>
       </el-form>
+
       <template #footer>
         <el-button @click="showCreateDialog = false">取消</el-button>
-        <el-button @click="saveDraft" v-if="!editingNews">保存草稿</el-button>
-        <el-button type="primary" @click="submitNews" :loading="submitLoading">
-          {{ editingNews ? '保存' : '提交审核' }}
+        <el-button v-if="!editingNews" @click="saveDraft">保存草稿</el-button>
+        <el-button type="primary" :loading="submitLoading" @click="submitNews">
+          {{ editingNews ? '保存修改并重新提交审核' : '提交审核' }}
         </el-button>
       </template>
     </el-dialog>
@@ -178,12 +182,12 @@
 </template>
 
 <script setup>
-import { ref, onMounted, computed } from 'vue'
-import { getMyNews, createNews, updateNews, deleteNews as deleteNewsApi } from '@/api/news'
-import { Plus, Document, Folder, View, Clock, EditPen } from '@element-plus/icons-vue'
+import { computed, onMounted, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import { Plus, Document, Folder, View, Clock, EditPen } from '@element-plus/icons-vue'
 import { useRouter } from 'vue-router'
-import request from '@/utils/request'
+import { getMyNews, createNews, updateNews, deleteNews as deleteNewsApi } from '@/api/news'
+import AdminImageUpload from '@/components/admin/AdminImageUpload.vue'
 
 const router = useRouter()
 const activeTab = ref('all')
@@ -209,17 +213,17 @@ const newsRules = {
 }
 
 const totalCount = computed(() => submissions.value.length)
-const pendingCount = computed(() => submissions.value.filter(n => n.status === 0).length)
-const approvedCount = computed(() => submissions.value.filter(n => n.status === 1).length)
-const rejectedCount = computed(() => submissions.value.filter(n => n.status === 2).length)
-const draftCount = computed(() => submissions.value.filter(n => n.status === 3).length)
+const pendingCount = computed(() => submissions.value.filter((news) => news.status === 0).length)
+const approvedCount = computed(() => submissions.value.filter((news) => news.status === 1).length)
+const rejectedCount = computed(() => submissions.value.filter((news) => news.status === 2).length)
+const draftCount = computed(() => submissions.value.filter((news) => news.status === 3).length)
 
 const filteredSubmissions = computed(() => {
   if (activeTab.value === 'all') return submissions.value
-  if (activeTab.value === 'pending') return submissions.value.filter(n => n.status === 0)
-  if (activeTab.value === 'approved') return submissions.value.filter(n => n.status === 1)
-  if (activeTab.value === 'rejected') return submissions.value.filter(n => n.status === 2)
-  if (activeTab.value === 'draft') return submissions.value.filter(n => n.status === 3)
+  if (activeTab.value === 'pending') return submissions.value.filter((news) => news.status === 0)
+  if (activeTab.value === 'approved') return submissions.value.filter((news) => news.status === 1)
+  if (activeTab.value === 'rejected') return submissions.value.filter((news) => news.status === 2)
+  if (activeTab.value === 'draft') return submissions.value.filter((news) => news.status === 3)
   return submissions.value
 })
 
@@ -227,13 +231,15 @@ const fetchSubmissions = async () => {
   loading.value = true
   try {
     const res = await getMyNews()
-    submissions.value = res || []
+    submissions.value = Array.isArray(res) ? res : []
   } catch (error) {
-    console.error(error)
+    ElMessage.error(error?.message || '获取投稿失败')
   } finally {
     loading.value = false
   }
 }
+
+const canEdit = (status) => status === 0 || status === 1 || status === 2 || status === 3
 
 const getStatusType = (status) => {
   const types = {
@@ -257,96 +263,7 @@ const getStatusText = (status) => {
 
 const formatDate = (dateStr) => {
   if (!dateStr) return ''
-  const date = new Date(dateStr)
-  return date.toLocaleDateString('zh-CN')
-}
-
-const uploadCover = async (options) => {
-  const { file } = options
-  const formData = new FormData()
-  formData.append('file', file)
-  try {
-    const data = await request.post('/v1/file/upload', formData, {
-      headers: { 'Content-Type': 'multipart/form-data' }
-    })
-    newsForm.value.coverImage = data
-    ElMessage.success('上传成功')
-  } catch (error) {
-    ElMessage.error('上传失败')
-  }
-}
-
-const submitNews = async () => {
-  if (!newsFormRef.value) return
-  
-  await newsFormRef.value.validate(async (valid) => {
-    if (!valid) return
-    
-    submitLoading.value = true
-    try {
-      if (editingNews.value) {
-        const data = { ...newsForm.value, status: 0 }
-        await updateNews(editingNews.value.id, data)
-        ElMessage.success('保存成功')
-      } else {
-        const data = { ...newsForm.value, status: 0 }
-        await createNews(data)
-        ElMessage.success('提交成功，等待审核')
-      }
-      showCreateDialog.value = false
-      resetForm()
-      fetchSubmissions()
-    } catch (error) {
-      ElMessage.error('提交失败')
-    } finally {
-      submitLoading.value = false
-    }
-  })
-}
-
-const saveDraft = async () => {
-  submitLoading.value = true
-  try {
-    const data = { ...newsForm.value, status: 3 }
-    await createNews(data)
-    ElMessage.success('草稿保存成功')
-    showCreateDialog.value = false
-    resetForm()
-    fetchSubmissions()
-  } catch (error) {
-    ElMessage.error('保存失败')
-  } finally {
-    submitLoading.value = false
-  }
-}
-
-const editNews = (news) => {
-  editingNews.value = news
-  newsForm.value = {
-    title: news.title,
-    category: news.category,
-    coverImage: news.coverImage,
-    summary: news.summary,
-    content: news.content
-  }
-  showCreateDialog.value = true
-}
-
-const viewNews = (news) => {
-  router.push(`/news/${news.id}`)
-}
-
-const handleDelete = async (news) => {
-  try {
-    await ElMessageBox.confirm('确定要删除这篇文章吗？', '提示', { type: 'warning' })
-    await deleteNewsApi(news.id)
-    submissions.value = submissions.value.filter(n => n.id !== news.id)
-    ElMessage.success('删除成功')
-  } catch (error) {
-    if (error !== 'cancel') {
-      ElMessage.error('删除失败')
-    }
-  }
+  return new Date(dateStr).toLocaleDateString('zh-CN')
 }
 
 const resetForm = () => {
@@ -357,6 +274,86 @@ const resetForm = () => {
     coverImage: '',
     summary: '',
     content: ''
+  }
+}
+
+const openCreateDialog = () => {
+  resetForm()
+  showCreateDialog.value = true
+}
+
+const handleDialogClosed = () => {
+  resetForm()
+}
+
+const submitNews = async () => {
+  if (!newsFormRef.value) return
+
+  const valid = await newsFormRef.value.validate().then(() => true).catch(() => false)
+  if (!valid) return
+
+  submitLoading.value = true
+  try {
+    const data = { ...newsForm.value, status: 0 }
+
+    if (editingNews.value) {
+      await updateNews(editingNews.value.id, data)
+      ElMessage.success('修改已保存，文章已重新进入审核')
+    } else {
+      await createNews(data)
+      ElMessage.success('提交成功，等待审核')
+    }
+
+    showCreateDialog.value = false
+    fetchSubmissions()
+  } catch (error) {
+    ElMessage.error(error?.message || '提交失败')
+  } finally {
+    submitLoading.value = false
+  }
+}
+
+const saveDraft = async () => {
+  submitLoading.value = true
+  try {
+    await createNews({ ...newsForm.value, status: 3 })
+    ElMessage.success('草稿保存成功')
+    showCreateDialog.value = false
+    fetchSubmissions()
+  } catch (error) {
+    ElMessage.error(error?.message || '保存失败')
+  } finally {
+    submitLoading.value = false
+  }
+}
+
+const editNews = (news) => {
+  editingNews.value = news
+  newsForm.value = {
+    title: news.title || '',
+    category: news.category || '',
+    coverImage: news.coverImage || '',
+    summary: news.summary || '',
+    content: news.content || ''
+  }
+  showCreateDialog.value = true
+}
+
+const viewNews = (news) => {
+  if (!news?.id) return
+  router.push({ name: 'NewsDetail', params: { id: news.id } })
+}
+
+const handleDelete = async (news) => {
+  try {
+    await ElMessageBox.confirm('确定要删除这篇文章吗？', '提示', { type: 'warning' })
+    await deleteNewsApi(news.id)
+    submissions.value = submissions.value.filter((item) => item.id !== news.id)
+    ElMessage.success('删除成功')
+  } catch (error) {
+    if (error !== 'cancel') {
+      ElMessage.error(error?.message || '删除失败')
+    }
   }
 }
 
@@ -430,10 +427,21 @@ onMounted(() => {
   text-align: center;
 }
 
-.tab .badge.warning { background: #e6a23c; }
-.tab .badge.success { background: #67c23a; }
-.tab .badge.danger { background: #f56c6c; }
-.tab .badge.info { background: #909399; }
+.tab .badge.warning {
+  background: #e6a23c;
+}
+
+.tab .badge.success {
+  background: #67c23a;
+}
+
+.tab .badge.danger {
+  background: #f56c6c;
+}
+
+.tab .badge.info {
+  background: #909399;
+}
 
 .content-area {
   padding: 20px 25px;
@@ -549,7 +557,6 @@ onMounted(() => {
   flex-shrink: 0;
 }
 
-/* 空状态 */
 .empty-state {
   text-align: center;
   padding: 60px 20px;
@@ -567,46 +574,7 @@ onMounted(() => {
   margin-bottom: 20px;
 }
 
-/* 封面上传 */
-.cover-uploader {
-  width: 200px;
-  height: 120px;
-}
-
-.cover-uploader :deep(.el-upload) {
-  width: 100%;
-  height: 100%;
-  border: 1px dashed #d9d9d9;
-  border-radius: 6px;
-  cursor: pointer;
-  overflow: hidden;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.cover-uploader :deep(.el-upload:hover) {
-  border-color: #4b89dc;
-}
-
-.cover-preview {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-}
-
-.cover-placeholder {
-  width: 100%;
-  height: 100%;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  color: #8c939d;
-  gap: 8px;
-}
-
-.cover-placeholder .el-icon {
-  font-size: 24px;
+.editing-alert {
+  margin-bottom: 16px;
 }
 </style>

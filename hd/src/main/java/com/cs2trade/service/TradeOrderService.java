@@ -24,7 +24,7 @@ public interface TradeOrderService {
     TradeOrder createOrder(Long buyerId, Long sellOrderId);
 
     /**
-     * 鍒涘缓璁㈠崟锛堝厑璁稿嵎鐢ㄦ寚瀹氭垚浜や环锛?
+     * ?
      */
     TradeOrder createOrder(Long buyerId, Long sellOrderId, java.math.BigDecimal agreedPrice);
 
@@ -38,15 +38,15 @@ public interface TradeOrderService {
     boolean payOrder(Long orderId, Long buyerId);
 
     /**
-     * 发货
+     * 检测买家发出的 Steam 报价
      *
      * @param orderId 订单ID
-     * @param sellerId 卖家ID
+     * @param buyerId 买家ID
      * @param tradeOfferId Steam交易报价ID
      * @param tradeOfferUrl 交易报价链接
-     * @return boolean 是否发货成功
+     * @return boolean 是否检测成功
      */
-    boolean shipOrder(Long orderId, Long sellerId, String tradeOfferId, String tradeOfferUrl);
+    boolean shipOrder(Long orderId, Long buyerId, String tradeOfferId, String tradeOfferUrl);
 
     /**
      * 卖家确认已接受机器人报价

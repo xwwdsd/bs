@@ -22,6 +22,10 @@ public class PlayerShowService {
         return playerShowMapper.selectAll();
     }
 
+    public PlayerShow getShowById(Long showId) {
+        return playerShowMapper.selectById(showId);
+    }
+
     public List<PlayerShow> getMyShows(Long userId) {
         return playerShowMapper.selectByUserId(userId);
     }
@@ -34,6 +38,25 @@ public class PlayerShowService {
         show.setDescription(description);
         playerShowMapper.insert(show);
         return playerShowMapper.selectById(show.getId());
+    }
+
+    @Transactional
+    public PlayerShow updateShow(Long id, Long userId, String imageUrl, String description) {
+        PlayerShow existingShow = playerShowMapper.selectById(id);
+        if (existingShow == null || !existingShow.getUserId().equals(userId)) {
+            return null;
+        }
+
+        PlayerShow show = new PlayerShow();
+        show.setId(id);
+        show.setUserId(userId);
+        show.setImageUrl(imageUrl);
+        show.setDescription(description);
+
+        if (playerShowMapper.updateByIdAndUserId(show) <= 0) {
+            return null;
+        }
+        return playerShowMapper.selectById(id);
     }
 
     @Transactional

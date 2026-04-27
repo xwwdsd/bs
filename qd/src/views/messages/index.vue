@@ -304,7 +304,15 @@ const getMessageIconClass = (message) => {
 }
 
 const getTagType = (message) => {
-  if (activeTab.value === 2) return 'warning'
+  if (activeTab.value === 2) {
+    const systemTagTypeMap = {
+      1: 'danger',
+      2: 'success',
+      3: 'info',
+      4: 'primary'
+    }
+    return systemTagTypeMap[Number(message?.subType || 0)] || 'info'
+  }
   if (activeTab.value === 3) {
     const bargainTagTypeMap = {
       1: 'warning',
@@ -324,7 +332,15 @@ const getTagType = (message) => {
 }
 
 const getTagText = (message) => {
-  if (activeTab.value === 2) return '系统'
+  if (activeTab.value === 2) {
+    const systemTagTextMap = {
+      1: '重要',
+      2: '活动',
+      3: '通知',
+      4: '公告'
+    }
+    return systemTagTextMap[Number(message?.subType || 0)] || '系统'
+  }
   if (activeTab.value === 3) {
     const bargainTagTextMap = {
       1: '待处理',

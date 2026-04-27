@@ -45,6 +45,9 @@ logs/
 *.temp
 tmp_*.json
 temp_*.json
+tmp/
+tools/
+论文/
 
 # Uploads
 hd/uploads/*

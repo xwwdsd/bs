@@ -10,6 +10,7 @@ import com.cs2trade.mapper.ItemMapper;
 import com.cs2trade.mapper.SteamSyncTaskMapper;
 import com.cs2trade.service.ItemService;
 import com.cs2trade.util.SteamApiClient;
+import com.cs2trade.util.SteamItemIdentityUtils;
 import com.cs2trade.util.SteamMarketPageResult;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -20,11 +21,15 @@ import java.math.RoundingMode;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.time.temporal.ChronoUnit;
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.LinkedHashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.regex.Matcher;
@@ -342,7 +347,9 @@ public class ItemServiceImpl implements ItemService {
 
     private int runSteamSync(SteamSyncTask task) {
         try {
-            Map<String, Item> existingItemMap = buildExistingItemMap();
+            List<Item> existingItems = itemMapper.selectAllActive();
+            Map<String, Item> existingItemMap = buildExistingItemMap(existingItems);
+            Map<String, List<Item>> existingDisplayNameMap = buildExistingDisplayNameMap(existingItems);
 
             int startPage = Math.max(defaultInt(task.getSyncedPages()), 0);
             int pageSize = positiveOrDefault(task.getPageSize(), syncProperties.getPageSize());
@@ -444,21 +451,28 @@ public class ItemServiceImpl implements ItemService {
                             continue;
                         }
 
-                        Item existingItem = existingItemMap.get(item.getItemId());
+                        Item existingItem = findExistingItem(existingItemMap, item);
                         if (existingItem != null) {
-                            if (needsUpdate(existingItem, item)) {
-                                item.setId(existingItem.getId());
-                                item.setCreatedAt(existingItem.getCreatedAt());
-                                itemMapper.updateById(item);
+                            Item mergedItem = mergeWithExistingItem(existingItem, item);
+                            if (needsUpdate(existingItem, mergedItem)) {
+                                mergedItem.setId(existingItem.getId());
+                                mergedItem.setCreatedAt(existingItem.getCreatedAt());
+                                itemMapper.updateById(mergedItem);
                                 updatedCount++;
-                                existingItemMap.put(item.getItemId(), item);
+                                registerExistingItemAliases(existingItemMap, mergedItem);
+                                registerDisplayNameAliases(existingDisplayNameMap, mergedItem);
+                                updateLegacyDisplayAliasCandidates(existingDisplayNameMap, mergedItem);
                             } else {
                                 skippedCount++;
                             }
+
+                            updatedCount += repairLegacyDisplayAliasItems(existingDisplayNameMap, mergedItem, existingItem.getId());
                         } else {
                             itemMapper.insert(item);
-                            existingItemMap.put(item.getItemId(), item);
+                            registerExistingItemAliases(existingItemMap, item);
+                            registerDisplayNameAliases(existingDisplayNameMap, item);
                             savedCount++;
+                            updatedCount += repairLegacyDisplayAliasItems(existingDisplayNameMap, item, item.getId());
                         }
                     } catch (Exception e) {
                         log.error("Parse Steam item failed: {}", e.getMessage(), e);
@@ -517,15 +531,252 @@ public class ItemServiceImpl implements ItemService {
         }
     }
 
-    private Map<String, Item> buildExistingItemMap() {
-        List<Item> existingItems = itemMapper.selectAllActive();
+    private Map<String, Item> buildExistingItemMap(List<Item> existingItems) {
         Map<String, Item> existingItemMap = new HashMap<>();
+        if (existingItems == null) {
+            return existingItemMap;
+        }
         for (Item item : existingItems) {
-            if (item.getItemId() != null) {
-                existingItemMap.put(item.getItemId(), item);
-            }
+            registerExistingItemAliases(existingItemMap, item);
         }
         return existingItemMap;
+    }
+
+    private Map<String, List<Item>> buildExistingDisplayNameMap(List<Item> existingItems) {
+        Map<String, List<Item>> displayNameMap = new HashMap<>();
+        if (existingItems == null) {
+            return displayNameMap;
+        }
+
+        for (Item item : existingItems) {
+            registerDisplayNameAliases(displayNameMap, item);
+        }
+        return displayNameMap;
+    }
+
+    private void registerExistingItemAliases(Map<String, Item> existingItemMap, Item item) {
+        if (existingItemMap == null || item == null) {
+            return;
+        }
+
+        addExistingItemAlias(existingItemMap, item.getItemId(), item);
+        addExistingItemAlias(existingItemMap, item.getSteamMarketHashName(), item);
+    }
+
+    private void addExistingItemAlias(Map<String, Item> existingItemMap, String alias, Item item) {
+        String key = SteamItemIdentityUtils.normalizeLookupKey(alias);
+        if (key != null) {
+            existingItemMap.putIfAbsent(key, item);
+        }
+    }
+
+    private void registerDisplayNameAliases(Map<String, List<Item>> displayNameMap, Item item) {
+        if (displayNameMap == null || item == null) {
+            return;
+        }
+
+        addDisplayNameAlias(displayNameMap, item.getName(), item);
+        addDisplayNameAlias(displayNameMap, item.getNameCn(), item);
+    }
+
+    private void addDisplayNameAlias(Map<String, List<Item>> displayNameMap, String alias, Item item) {
+        String key = SteamItemIdentityUtils.normalizeLookupKey(alias);
+        if (key == null) {
+            return;
+        }
+
+        List<Item> items = displayNameMap.computeIfAbsent(key, ignored -> new ArrayList<>());
+        if (item.getId() == null) {
+            items.add(item);
+            return;
+        }
+
+        for (Item existing : items) {
+            if (Objects.equals(existing.getId(), item.getId())) {
+                return;
+            }
+        }
+        items.add(item);
+    }
+
+    private int repairLegacyDisplayAliasItems(Map<String, List<Item>> displayNameMap, Item canonicalItem, Long primaryItemId) {
+        if (displayNameMap == null || canonicalItem == null) {
+            return 0;
+        }
+
+        Set<Long> repairedIds = new LinkedHashSet<>();
+        int repairedCount = 0;
+
+        for (Item candidate : findDisplayAliasCandidates(displayNameMap, canonicalItem)) {
+            if (candidate == null || candidate.getId() == null || Objects.equals(candidate.getId(), primaryItemId)) {
+                continue;
+            }
+            if (!repairedIds.add(candidate.getId()) || !needsLegacyDisplayAliasRepair(candidate, canonicalItem)) {
+                continue;
+            }
+
+            Item repairItem = new Item();
+            repairItem.setId(candidate.getId());
+
+            String repairedIconUrl = SteamItemIdentityUtils.firstUsableIconUrl(
+                    canonicalItem.getIconUrl(),
+                    candidate.getIconUrl()
+            );
+            if (repairedIconUrl != null && !Objects.equals(repairedIconUrl, candidate.getIconUrl())) {
+                repairItem.setIconUrl(repairedIconUrl);
+                candidate.setIconUrl(repairedIconUrl);
+            }
+
+            if (!Objects.equals(candidate.getSteamMarketHashName(), canonicalItem.getSteamMarketHashName())) {
+                repairItem.setSteamMarketHashName(canonicalItem.getSteamMarketHashName());
+                candidate.setSteamMarketHashName(canonicalItem.getSteamMarketHashName());
+            }
+
+            if (!Objects.equals(candidate.getSteamMarketUrl(), canonicalItem.getSteamMarketUrl())) {
+                repairItem.setSteamMarketUrl(canonicalItem.getSteamMarketUrl());
+                candidate.setSteamMarketUrl(canonicalItem.getSteamMarketUrl());
+            }
+
+            if (!isBlank(canonicalItem.getCategory()) && !Objects.equals(candidate.getCategory(), canonicalItem.getCategory())) {
+                repairItem.setCategory(canonicalItem.getCategory());
+                candidate.setCategory(canonicalItem.getCategory());
+            }
+
+            if (!isBlank(canonicalItem.getQuality()) && !Objects.equals(candidate.getQuality(), canonicalItem.getQuality())) {
+                repairItem.setQuality(canonicalItem.getQuality());
+                candidate.setQuality(canonicalItem.getQuality());
+            }
+
+            if (!isBlank(canonicalItem.getRarity()) && !Objects.equals(candidate.getRarity(), canonicalItem.getRarity())) {
+                repairItem.setRarity(canonicalItem.getRarity());
+                candidate.setRarity(canonicalItem.getRarity());
+            }
+
+            if (canonicalItem.getSteamReferencePrice() != null
+                    && (!Objects.equals(candidate.getSteamReferencePrice(), canonicalItem.getSteamReferencePrice())
+                    || !Objects.equals(candidate.getSteamReferenceCurrency(), canonicalItem.getSteamReferenceCurrency())
+                    || !Objects.equals(candidate.getSteamReferencePriceSource(), canonicalItem.getSteamReferencePriceSource())
+                    || !Objects.equals(candidate.getSteamReferencePriceUpdatedAt(), canonicalItem.getSteamReferencePriceUpdatedAt()))) {
+                repairItem.setSteamReferencePrice(canonicalItem.getSteamReferencePrice());
+                repairItem.setSteamReferenceCurrency(canonicalItem.getSteamReferenceCurrency());
+                repairItem.setSteamReferencePriceSource(canonicalItem.getSteamReferencePriceSource());
+                repairItem.setSteamReferencePriceUpdatedAt(canonicalItem.getSteamReferencePriceUpdatedAt());
+                candidate.setSteamReferencePrice(canonicalItem.getSteamReferencePrice());
+                candidate.setSteamReferenceCurrency(canonicalItem.getSteamReferenceCurrency());
+                candidate.setSteamReferencePriceSource(canonicalItem.getSteamReferencePriceSource());
+                candidate.setSteamReferencePriceUpdatedAt(canonicalItem.getSteamReferencePriceUpdatedAt());
+            }
+
+            itemMapper.updateById(repairItem);
+            repairedCount++;
+        }
+
+        return repairedCount;
+    }
+
+    private List<Item> findDisplayAliasCandidates(Map<String, List<Item>> displayNameMap, Item canonicalItem) {
+        List<Item> matches = new ArrayList<>();
+        collectDisplayAliasCandidates(displayNameMap, canonicalItem.getName(), matches);
+        collectDisplayAliasCandidates(displayNameMap, canonicalItem.getNameCn(), matches);
+        return matches;
+    }
+
+    private void collectDisplayAliasCandidates(Map<String, List<Item>> displayNameMap, String alias, List<Item> matches) {
+        String key = SteamItemIdentityUtils.normalizeLookupKey(alias);
+        if (key == null) {
+            return;
+        }
+
+        List<Item> items = displayNameMap.get(key);
+        if (items == null || items.isEmpty()) {
+            return;
+        }
+
+        matches.addAll(items);
+    }
+
+    private boolean needsLegacyDisplayAliasRepair(Item candidate, Item canonicalItem) {
+        if (candidate == null || canonicalItem == null) {
+            return false;
+        }
+
+        boolean needsIconRepair = !SteamItemIdentityUtils.isUsableItemIconUrl(candidate.getIconUrl())
+                && SteamItemIdentityUtils.isUsableItemIconUrl(canonicalItem.getIconUrl());
+        boolean needsMarketHashRepair = isBlank(candidate.getSteamMarketHashName()) && !isBlank(canonicalItem.getSteamMarketHashName());
+        boolean needsMarketUrlRepair = isBlank(candidate.getSteamMarketUrl()) && !isBlank(canonicalItem.getSteamMarketUrl());
+        boolean needsCategoryRepair = !isBlank(canonicalItem.getCategory())
+                && !Objects.equals(candidate.getCategory(), canonicalItem.getCategory());
+        boolean needsQualityRepair = !isBlank(canonicalItem.getQuality())
+                && !Objects.equals(candidate.getQuality(), canonicalItem.getQuality());
+        boolean needsRarityRepair = !isBlank(canonicalItem.getRarity())
+                && !Objects.equals(candidate.getRarity(), canonicalItem.getRarity());
+        boolean needsSteamReferenceRepair = canonicalItem.getSteamReferencePrice() != null
+                && (!Objects.equals(candidate.getSteamReferencePrice(), canonicalItem.getSteamReferencePrice())
+                || !Objects.equals(candidate.getSteamReferenceCurrency(), canonicalItem.getSteamReferenceCurrency())
+                || !Objects.equals(candidate.getSteamReferencePriceSource(), canonicalItem.getSteamReferencePriceSource()));
+
+        return needsIconRepair
+                || needsMarketHashRepair
+                || needsMarketUrlRepair
+                || needsCategoryRepair
+                || needsQualityRepair
+                || needsRarityRepair
+                || needsSteamReferenceRepair;
+    }
+
+    private void updateLegacyDisplayAliasCandidates(Map<String, List<Item>> displayNameMap, Item updatedItem) {
+        if (displayNameMap == null || updatedItem == null || updatedItem.getId() == null) {
+            return;
+        }
+
+        for (Item candidate : findDisplayAliasCandidates(displayNameMap, updatedItem)) {
+            if (candidate != null && Objects.equals(candidate.getId(), updatedItem.getId())) {
+                candidate.setIconUrl(updatedItem.getIconUrl());
+                candidate.setSteamMarketHashName(updatedItem.getSteamMarketHashName());
+                candidate.setSteamMarketUrl(updatedItem.getSteamMarketUrl());
+                candidate.setCategory(updatedItem.getCategory());
+                candidate.setQuality(updatedItem.getQuality());
+                candidate.setRarity(updatedItem.getRarity());
+                candidate.setSteamReferencePrice(updatedItem.getSteamReferencePrice());
+                candidate.setSteamReferenceCurrency(updatedItem.getSteamReferenceCurrency());
+                candidate.setSteamReferencePriceSource(updatedItem.getSteamReferencePriceSource());
+                candidate.setSteamReferencePriceUpdatedAt(updatedItem.getSteamReferencePriceUpdatedAt());
+            }
+        }
+    }
+
+    private Item findExistingItem(Map<String, Item> existingItemMap, Item steamItem) {
+        if (existingItemMap == null || existingItemMap.isEmpty() || steamItem == null) {
+            return null;
+        }
+
+        Item existingItem = existingItemMap.get(SteamItemIdentityUtils.normalizeLookupKey(steamItem.getItemId()));
+        if (existingItem != null) {
+            return existingItem;
+        }
+
+        return existingItemMap.get(SteamItemIdentityUtils.normalizeLookupKey(steamItem.getSteamMarketHashName()));
+    }
+
+    private Item mergeWithExistingItem(Item existingItem, Item steamItem) {
+        if (existingItem == null || steamItem == null) {
+            return steamItem;
+        }
+
+        if (!SteamItemIdentityUtils.isUsableItemIconUrl(steamItem.getIconUrl())
+                && SteamItemIdentityUtils.isUsableItemIconUrl(existingItem.getIconUrl())) {
+            steamItem.setIconUrl(existingItem.getIconUrl());
+        }
+
+        if (steamItem.getSteamMarketHashName() == null || steamItem.getSteamMarketHashName().isBlank()) {
+            steamItem.setSteamMarketHashName(existingItem.getSteamMarketHashName());
+        }
+
+        if (steamItem.getSteamMarketUrl() == null || steamItem.getSteamMarketUrl().isBlank()) {
+            steamItem.setSteamMarketUrl(existingItem.getSteamMarketUrl());
+        }
+
+        return steamItem;
     }
 
     private SteamMarketPageResult fetchSteamPageWithRetry(SteamSyncTask task, int page, int pageSize) throws InterruptedException {
@@ -730,11 +981,24 @@ public class ItemServiceImpl implements ItemService {
         return "";
     }
 
+    private String firstNonBlankOrNull(String... values) {
+        String value = firstNonBlank(values);
+        return value == null || value.isBlank() ? null : value;
+    }
+
+    private boolean isBlank(String value) {
+        return value == null || value.isBlank();
+    }
+
     boolean needsUpdate(Item existingItem, Item latestItem) {
-        return !Objects.equals(existingItem.getName(), latestItem.getName())
+        return !Objects.equals(existingItem.getItemId(), latestItem.getItemId())
+                || !Objects.equals(existingItem.getName(), latestItem.getName())
                 || !Objects.equals(existingItem.getNameCn(), latestItem.getNameCn())
                 || !Objects.equals(existingItem.getIconUrl(), latestItem.getIconUrl())
                 || !Objects.equals(existingItem.getCategory(), latestItem.getCategory())
+                || !Objects.equals(existingItem.getQuality(), latestItem.getQuality())
+                || !Objects.equals(existingItem.getRarity(), latestItem.getRarity())
+                || !Objects.equals(existingItem.getSteamMarketUrl(), latestItem.getSteamMarketUrl())
                 || !Objects.equals(existingItem.getSteamMarketHashName(), latestItem.getSteamMarketHashName())
                 || hasNewSteamReferencePrice(existingItem, latestItem);
     }
@@ -751,29 +1015,28 @@ public class ItemServiceImpl implements ItemService {
             Item item = new Item();
 
             String name = itemJson.getString("name");
-            String hashName = itemJson.getString("market_hash_name");
+            String hashName = extractSteamHashName(itemJson);
+            JSONObject assetDescription = itemJson.getJSONObject("asset_description");
             if (name == null || name.isEmpty()) {
                 return null;
             }
+
+            String canonicalName = firstNonBlankOrNull(hashName, name);
+            String assetType = assetDescription != null ? assetDescription.getString("type") : null;
+            String assetNameColor = assetDescription != null ? assetDescription.getString("name_color") : null;
+            String resolvedQuality = determineQuality(assetType, assetNameColor);
 
             item.setItemId(hashName != null ? hashName : name);
             item.setName(name);
             item.setNameCn(name);
             item.setSteamMarketHashName(hashName);
+            item.setSteamMarketUrl(SteamItemIdentityUtils.buildSteamMarketUrl(hashName));
 
-            String iconUrl = itemJson.getString("icon_url");
-            if (iconUrl != null && !iconUrl.isEmpty()) {
-                item.setIconUrl(normalizeSteamIconUrl(iconUrl));
-            } else {
-                String appIcon = itemJson.getString("app_icon");
-                if (appIcon != null && !appIcon.isEmpty()) {
-                    item.setIconUrl(appIcon);
-                }
-            }
+            item.setIconUrl(extractSteamIconUrl(itemJson));
 
-            item.setCategory(determineCategory(name));
-            item.setQuality("common");
-            item.setRarity("common");
+            item.setCategory(determineCategory(canonicalName, assetType));
+            item.setQuality(resolvedQuality != null ? resolvedQuality : "common");
+            item.setRarity(resolvedQuality != null ? resolvedQuality : "common");
             item.setExterior(null);
             item.setIsActive(1);
 
@@ -795,17 +1058,27 @@ public class ItemServiceImpl implements ItemService {
     }
 
     private String normalizeSteamIconUrl(String iconUrl) {
-        String normalized = iconUrl == null ? "" : iconUrl.trim();
-        if (normalized.isEmpty()) {
-            return null;
-        }
-        if (normalized.startsWith("http://") || normalized.startsWith("https://")) {
-            return normalized;
-        }
-        if (normalized.startsWith("/")) {
-            return normalized;
-        }
-        return STEAM_IMAGE_URL + normalized;
+        return SteamItemIdentityUtils.normalizeSteamIconUrl(iconUrl);
+    }
+
+    private String extractSteamHashName(JSONObject itemJson) {
+        JSONObject assetDescription = itemJson.getJSONObject("asset_description");
+        return firstNonBlankOrNull(
+                itemJson.getString("market_hash_name"),
+                itemJson.getString("hash_name"),
+                assetDescription != null ? assetDescription.getString("market_hash_name") : null,
+                assetDescription != null ? assetDescription.getString("market_name") : null
+        );
+    }
+
+    private String extractSteamIconUrl(JSONObject itemJson) {
+        JSONObject assetDescription = itemJson.getJSONObject("asset_description");
+        return firstNonBlankOrNull(
+                normalizeSteamIconUrl(itemJson.getString("icon_url")),
+                normalizeSteamIconUrl(assetDescription != null ? assetDescription.getString("icon_url_large") : null),
+                normalizeSteamIconUrl(assetDescription != null ? assetDescription.getString("icon_url") : null),
+                itemJson.getString("app_icon")
+        );
     }
 
     BigDecimal parseSteamReferencePrice(JSONObject itemJson) {
@@ -864,69 +1137,202 @@ public class ItemServiceImpl implements ItemService {
         return null;
     }
 
+    private String determineCategory(String name, String assetType) {
+        String categoryFromType = determineCategoryFromType(assetType);
+        if (categoryFromType != null) {
+            return categoryFromType;
+        }
+
+        return determineCategory(name);
+    }
+
     private String determineCategory(String name) {
         if (name == null) {
             return "other";
         }
 
-        String lowerName = name.toLowerCase();
+        String lowerName = name.toLowerCase(Locale.ROOT);
 
-        if (lowerName.contains("ak-47") || lowerName.contains("m4a1") || lowerName.contains("m4a4")
-                || lowerName.contains("awp") || lowerName.contains("rifle")) {
-            return "rifle";
-        }
-        if (lowerName.contains("pistol") || lowerName.contains("glock") || lowerName.contains("desert eagle")
-                || lowerName.contains("p250") || lowerName.contains("tec-9") || lowerName.contains("cz75")
-                || lowerName.contains("fn57") || lowerName.contains("usp") || lowerName.contains("r8")) {
-            return "pistol";
-        }
-        if (lowerName.contains("mp9") || lowerName.contains("mp7") || lowerName.contains("mac-10")
-                || lowerName.contains("p90") || lowerName.contains("bizon") || lowerName.contains("smg")) {
-            return "smg";
-        }
-        if (lowerName.contains("shotgun") || lowerName.contains("mag-7") || lowerName.contains("nova")
-                || lowerName.contains("xm1014") || lowerName.contains("sawed-off")) {
-            return "shotgun";
-        }
-        if (lowerName.contains("sniper") || lowerName.contains("ssg 08") || lowerName.contains("g3sg1")
-                || lowerName.contains("scar")) {
-            return "sniper_rifle";
-        }
-        if (lowerName.contains("machinegun") || lowerName.contains("m249") || lowerName.contains("negev")) {
-            return "machinegun";
-        }
-        if (lowerName.contains("knife") || lowerName.contains("bayonet") || lowerName.contains("karambit")
-                || lowerName.contains("m9 bayonet") || lowerName.contains("butterfly") || lowerName.contains("huntsman")
-                || lowerName.contains("falchion") || lowerName.contains("shadow daggers") || lowerName.contains("bowie")
-                || lowerName.contains("survival") || lowerName.contains("ursus") || lowerName.contains("navaja")
-                || lowerName.contains("stiletto") || lowerName.contains("talon") || lowerName.contains("paracord")
-                || lowerName.contains("nomad") || lowerName.contains("skeleton")) {
-            return "knife";
-        }
-        if (lowerName.contains("glove") || lowerName.contains("sport glove") || lowerName.contains("driver glove")
-                || lowerName.contains("hand wraps") || lowerName.contains("motive glove")
-                || lowerName.contains("specialist") || lowerName.contains("bloodhound")) {
-            return "glove";
-        }
-        if (lowerName.contains("sticker")) {
+        if (containsAny(lowerName, "sticker")) {
             return "sticker";
         }
-        if (lowerName.contains("souvenir")) {
-            return "souvenir";
+        if (containsAny(lowerName, "charm")) {
+            return "charm";
         }
-        if (lowerName.contains("music kit")) {
-            return "music";
-        }
-        if (lowerName.contains("agent")) {
+        if (containsAny(lowerName, "agent")) {
             return "agent";
         }
-        if (lowerName.contains("graffiti")) {
+        if (containsAny(lowerName, "graffiti")) {
             return "graffiti";
         }
-        if (lowerName.contains("case")) {
+        if (containsAny(lowerName, "music kit")) {
+            return "music";
+        }
+        if (containsAny(lowerName, "case", "capsule", "package")) {
             return "case";
+        }
+        if (containsAny(lowerName, "ssg 08", "g3sg1", "scar", "scar-20", "awp", "sniper")) {
+            return "sniper_rifle";
+        }
+        if (containsAny(lowerName, "ak-47", "m4a1", "m4a4", "famas", "galil", "aug", "sg 553", "sg553", "rifle")) {
+            return "rifle";
+        }
+        if (containsAny(lowerName, "pistol", "glock", "desert eagle", "p250", "tec-9", "cz75", "fn57", "usp", "r8")) {
+            return "pistol";
+        }
+        if (containsAny(lowerName, "mp9", "mp7", "mac-10", "p90", "bizon", "smg")) {
+            return "smg";
+        }
+        if (containsAny(lowerName, "shotgun", "mag-7", "nova", "xm1014", "sawed-off")) {
+            return "shotgun";
+        }
+        if (containsAny(lowerName, "machinegun", "m249", "negev")) {
+            return "machinegun";
+        }
+        if (containsAny(lowerName, "knife", "bayonet", "karambit", "m9 bayonet", "butterfly", "huntsman",
+                "falchion", "shadow daggers", "bowie", "survival", "ursus", "navaja",
+                "stiletto", "talon", "paracord", "nomad", "skeleton")) {
+            return "knife";
+        }
+        if (containsAny(lowerName, "glove", "sport glove", "driver glove", "hand wraps",
+                "moto glove", "specialist", "bloodhound")) {
+            return "glove";
         }
 
         return "other";
+    }
+
+    private String determineCategoryFromType(String assetType) {
+        if (assetType == null || assetType.isBlank()) {
+            return null;
+        }
+
+        String normalized = assetType.toLowerCase(Locale.ROOT);
+
+        if (containsAny(normalized, "狙击步枪", "sniper rifle")) {
+            return "sniper_rifle";
+        }
+        if (containsAny(normalized, "步枪", "rifle")) {
+            return "rifle";
+        }
+        if (containsAny(normalized, "手枪", "pistol")) {
+            return "pistol";
+        }
+        if (containsAny(normalized, "冲锋枪", "smg")) {
+            return "smg";
+        }
+        if (containsAny(normalized, "霰弹枪", "shotgun")) {
+            return "shotgun";
+        }
+        if (containsAny(normalized, "机枪", "machinegun")) {
+            return "machinegun";
+        }
+        if (containsAny(normalized, "手套", "glove")) {
+            return "glove";
+        }
+        if (containsAny(normalized, "匕首", "刀", "knife")) {
+            return "knife";
+        }
+        if (containsAny(normalized, "印花", "sticker")) {
+            return "sticker";
+        }
+        if (containsAny(normalized, "挂件", "吊坠", "charm")) {
+            return "charm";
+        }
+        if (containsAny(normalized, "探员", "agent")) {
+            return "agent";
+        }
+
+        return null;
+    }
+
+    private String determineQuality(String assetType, String assetNameColor) {
+        String qualityFromType = determineQualityFromType(assetType);
+        if (qualityFromType != null) {
+            return qualityFromType;
+        }
+
+        return determineQualityFromColor(assetNameColor);
+    }
+
+    private String determineQualityFromType(String assetType) {
+        if (assetType == null || assetType.isBlank()) {
+            return null;
+        }
+
+        String normalized = assetType.toLowerCase(Locale.ROOT);
+
+        if (containsAny(normalized, "违禁", "contraband", "ancient")) {
+            return "contraband";
+        }
+        if (containsAny(normalized, "隐秘级", "covert", "legendary")) {
+            return "covert";
+        }
+        if (containsAny(normalized, "保密级", "classified", "mythical")) {
+            return "classified";
+        }
+        if (containsAny(normalized, "受限级", "restricted", "rare")) {
+            return "restricted";
+        }
+        if (containsAny(normalized, "军规级", "mil-spec", "milspec", "uncommon")) {
+            return "mil-spec";
+        }
+        if (containsAny(normalized, "工业级", "industrial", "industrial grade")) {
+            return "industrial";
+        }
+        if (containsAny(normalized, "消费级", "consumer", "consumer grade", "common")) {
+            return "consumer";
+        }
+        if (containsAny(normalized, "非凡", "extraordinary", "immortal")) {
+            return "extraordinary";
+        }
+        if (containsAny(normalized, "卓越", "exotic")) {
+            return "exotic";
+        }
+        if (containsAny(normalized, "奇异", "remarkable")) {
+            return "remarkable";
+        }
+        if (containsAny(normalized, "高级", "high-grade", "high grade", "superior")) {
+            return "high-grade";
+        }
+        if (containsAny(normalized, "普通级", "normal-grade", "normal grade", "base grade")) {
+            return "normal-grade";
+        }
+        if (containsAny(normalized, "探员品质", "distinguished", "exceptional", "master", "agent grade")) {
+            return "agent-grade";
+        }
+
+        return null;
+    }
+
+    private String determineQualityFromColor(String assetNameColor) {
+        if (assetNameColor == null || assetNameColor.isBlank()) {
+            return null;
+        }
+
+        return switch (assetNameColor.trim().toLowerCase(Locale.ROOT)) {
+            case "e4ae39" -> "contraband";
+            case "eb4b4b" -> "covert";
+            case "d32ce6" -> "classified";
+            case "8847ff" -> "restricted";
+            case "4b69ff" -> "mil-spec";
+            case "5e98d9" -> "industrial";
+            case "b0c3d9" -> "consumer";
+            default -> null;
+        };
+    }
+
+    private boolean containsAny(String value, String... tokens) {
+        if (value == null || tokens == null) {
+            return false;
+        }
+
+        for (String token : tokens) {
+            if (token != null && !token.isBlank() && value.contains(token)) {
+                return true;
+            }
+        }
+
+        return false;
     }
 }

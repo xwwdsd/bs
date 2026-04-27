@@ -40,6 +40,13 @@
         VALUES (#{userId}, #{imageUrl}, #{description}, 0, NOW())
     </insert>
 
+    <update id="updateByIdAndUserId">
+        UPDATE sys_player_show
+        SET image_url = #{imageUrl},
+            description = #{description}
+        WHERE id = #{id} AND user_id = #{userId}
+    </update>
+
     <update id="incrementLikes">
         UPDATE sys_player_show SET likes = likes + 1 WHERE id = #{id}
     </update>

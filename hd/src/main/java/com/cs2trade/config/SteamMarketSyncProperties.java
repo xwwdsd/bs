@@ -14,7 +14,7 @@ import java.util.List;
 @ConfigurationProperties(prefix = "steam.market-sync")
 public class SteamMarketSyncProperties {
 
-    private int pageSize = 100;
+    private int pageSize = 10;
 
     private int maxPagesPerRun = 200;
 

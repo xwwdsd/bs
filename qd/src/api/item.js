@@ -52,8 +52,12 @@ export const searchItems = (keyword) => {
   return get('/v1/items/search', { keyword })
 }
 
-export const getRecommendations = (limit = 8) => {
-  return get('/v1/items/recommendations', { limit }, { timeout: 45000 })
+export const getRecommendations = (limit = 8, currentItemId = null) => {
+  const params = { limit }
+  if (currentItemId !== null && currentItemId !== undefined && currentItemId !== '') {
+    params.currentItemId = currentItemId
+  }
+  return get('/v1/items/recommendations', params, { timeout: 45000 })
 }
 
 /**

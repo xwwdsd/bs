@@ -27,6 +27,7 @@
           <InventorySellAdviceTab
             v-show="activeTab === 'sellAdvice'"
             :active="activeTab === 'sellAdvice'"
+            @open-inventory="activeTab = 'steam'"
           />
         </div>
       </section>

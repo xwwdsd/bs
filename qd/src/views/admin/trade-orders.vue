@@ -5,9 +5,9 @@
         <el-input v-model="query.keyword" placeholder="搜索订单号或报价编号" clearable @keyup.enter="loadData" />
         <el-input v-model.number="query.userId" placeholder="用户编号" clearable />
         <el-select v-model="query.status" placeholder="状态" clearable>
-          <el-option label="待确认" :value="0" />
+          <el-option label="待支付" :value="0" />
           <el-option label="报价中" :value="1" />
-          <el-option label="待发货" :value="2" />
+      <el-option label="待买家报价" :value="2" />
           <el-option label="待收货" :value="3" />
           <el-option label="已完成" :value="4" />
           <el-option label="已取消" :value="5" />
@@ -24,7 +24,9 @@
         <el-table-column prop="price" label="金额" width="110"><template #default="{ row }">{{ money(row.price) }}</template></el-table-column>
         <el-table-column prop="status" label="状态" width="100"><template #default="{ row }">{{ statusText(row.status) }}</template></el-table-column>
         <el-table-column prop="tradeOfferId" label="报价编号" min-width="150" />
-        <el-table-column prop="deliveryStage" label="发货阶段" min-width="150" />
+    <el-table-column prop="deliveryStage" label="交付阶段" min-width="150">
+          <template #default="{ row }">{{ deliveryStageText(row.deliveryStage) }}</template>
+        </el-table-column>
         <el-table-column label="操作" width="150" fixed="right">
           <template #default="{ row }">
             <el-button size="small" @click="openDetail(row)">详情</el-button>
@@ -43,7 +45,7 @@
         <el-descriptions-item label="买家">{{ current.buyerId }}</el-descriptions-item>
         <el-descriptions-item label="卖家">{{ current.sellerId }}</el-descriptions-item>
         <el-descriptions-item label="报价编号">{{ current.tradeOfferId || '-' }}</el-descriptions-item>
-        <el-descriptions-item label="发货阶段">{{ current.deliveryStage || '-' }}</el-descriptions-item>
+      <el-descriptions-item label="交付阶段">{{ deliveryStageText(current.deliveryStage) }}</el-descriptions-item>
         <el-descriptions-item label="监控错误">{{ current.monitorErrorMessage || '-' }}</el-descriptions-item>
       </el-descriptions>
     </el-drawer>
@@ -63,7 +65,15 @@ const current = ref(null)
 const drawerVisible = ref(false)
 const query = reactive({ page: 1, size: 20, keyword: '', userId: null, status: null })
 const money = (value) => `￥${Number(value || 0).toFixed(2)}`
-const statusText = (status) => ({ 0: '待确认', 1: '报价中', 2: '待发货', 3: '待收货', 4: '已完成', 5: '已取消', 6: '纠纷中' }[status] || '未知')
+const statusText = (status) => ({ 0: '待支付', 1: '报价中', 2: '待买家报价', 3: '待收货', 4: '已完成', 5: '已取消', 6: '纠纷中' }[status] || '未知')
+const deliveryStageText = (stage) => ({
+  NONE: '未进入交付',
+  BUYER_OFFER_SENT: '买家已发送报价',
+  SELLER_OFFER_SENT: '报价已发送',
+  SELLER_CONFIRMED: '卖家确认报价',
+  OFFER_ACCEPTED: '报价已接受',
+  BUYER_RECEIVED: '买家库存已匹配'
+}[stage] || stage || '-')
 const canCancel = (row) => row.status === 0 || row.status === 2
 
 const loadData = async () => {

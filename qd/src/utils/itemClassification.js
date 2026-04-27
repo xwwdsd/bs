@@ -176,7 +176,7 @@ const normalizeExplicitType = (value) => {
   return ''
 }
 
-const getCandidateTexts = (source) => {
+const getNameLikeCandidateTexts = (source) => {
   if (!source) return []
   if (typeof source === 'string') return [source]
 
@@ -186,19 +186,32 @@ const getCandidateTexts = (source) => {
     source.marketHashName,
     source.market_name,
     source.market_hash_name,
-    source.description,
     source.inventory?.name,
     source.inventory?.nameCn,
     source.inventory?.marketHashName,
     source.inventory?.market_name,
-    source.inventory?.description,
     source.inventory?.item?.nameCn,
     source.inventory?.item?.name,
     source.item?.nameCn,
     source.item?.name,
-    source.item?.marketHashName,
-    source.item?.description
+    source.item?.marketHashName
   ].filter(Boolean)
+}
+
+const getCandidateTexts = (source, { includeDescriptions = true } = {}) => {
+  const texts = getNameLikeCandidateTexts(source)
+
+  if (!source || typeof source === 'string' || !includeDescriptions) {
+    return texts
+  }
+
+  return texts.concat(
+    [
+      source.description,
+      source.inventory?.description,
+      source.item?.description
+    ].filter(Boolean)
+  )
 }
 
 const hasAnyAlias = (text, aliases) => aliases.some((alias) => text.includes(normalizeText(alias)))
@@ -357,7 +370,7 @@ const getExplicitType = (source) => {
 }
 
 const inferClassification = (source) => {
-  const texts = getCandidateTexts(source)
+  const texts = getNameLikeCandidateTexts(source)
   return inferSpecialCategory(texts) || inferWeaponCategory(texts)
 }
 
@@ -386,7 +399,7 @@ export const resolveItemType = (source) => {
     return explicit
   }
 
-  const texts = getCandidateTexts(source)
+  const texts = getNameLikeCandidateTexts(source)
   const combined = texts.map(normalizeText).join(' ')
   const original = texts.join(' ')
   const hasStar = original.includes('\u2605') || combined.includes('★') || /\bstar\b/.test(combined)
@@ -508,37 +521,27 @@ export const inferQualityFromTexts = (...values) => {
 export const resolveItemQuality = (source) => {
   const category = resolveItemCategory(source)
   const subCategory = resolveItemSubCategory(source)
-  const directCandidates = [
-    source?.inventory?.rarity,
-    source?.rarity,
+  const metadataCandidates = [
+    source?.item?.rarity,
+    source?.item?.quality,
     source?.inventory?.item?.rarity,
-    source?.item?.rarity
+    source?.inventory?.item?.quality,
+    source?.rarity,
+    source?.quality,
+    source?.inventory?.rarity,
+    source?.inventory?.quality
   ]
 
-  for (const value of directCandidates) {
+  for (const value of metadataCandidates) {
     const normalized = normalizeQualityKey(value)
     if (isQualityCompatibleWithCategory(normalized, category, subCategory)) {
       return normalized
     }
   }
 
-  const inferred = inferQualityFromTexts(...getCandidateTexts(source))
+  const inferred = inferQualityFromTexts(...getNameLikeCandidateTexts(source))
   if (isQualityCompatibleWithCategory(inferred, category, subCategory)) {
     return inferred
-  }
-
-  const fallbackCandidates = [
-    source?.inventory?.item?.quality,
-    source?.item?.quality,
-    source?.inventory?.quality,
-    source?.quality
-  ]
-
-  for (const value of fallbackCandidates) {
-    const normalized = normalizeQualityKey(value)
-    if (isQualityCompatibleWithCategory(normalized, category, subCategory)) {
-      return normalized
-    }
   }
 
   return ''
