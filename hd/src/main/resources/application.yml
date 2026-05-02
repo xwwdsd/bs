@@ -13,11 +13,11 @@ spring:
   # MySQL 数据源配置
   datasource:
     # 数据库连接 URL
-    url: jdbc:mysql://localhost:3306/cs2trade?useUnicode=true&characterEncoding=utf-8&useSSL=false&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true
+    url: "${DB_URL:jdbc:mysql://localhost:3306/cs2trade?useUnicode=true&characterEncoding=utf-8&useSSL=false&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true}"
     # 数据库用户名
-    username: root
+    username: "${DB_USERNAME:root}"
     # 数据库密码
-    password: 123456
+    password: "${DB_PASSWORD:123456}"
     # 数据库驱动
     driver-class-name: com.mysql.cj.jdbc.Driver
 
@@ -63,15 +63,15 @@ spring:
   data:
     redis:
       # Redis 服务器地址
-      host: localhost
+      host: "${REDIS_HOST:localhost}"
       # Redis 服务器端口
-      port: 6379
+      port: "${REDIS_PORT:6379}"
       # Redis 数据库索引（默认 0）
-      database: 0
+      database: "${REDIS_DATABASE:0}"
       # 连接超时时间（毫秒）
-      timeout: 3000
+      timeout: "${REDIS_TIMEOUT:3000}"
       # 密码（如果没有密码留空）
-      password:
+      password: "${REDIS_PASSWORD:}"
       # Lettuce 连接池配置
       lettuce:
         pool:
@@ -88,8 +88,8 @@ spring:
   mail:
     host: smtp.qq.com
     port: 587
-    username: your-email@qq.com
-    password: your-smtp-password
+    username: "${MAIL_USERNAME:your-email@qq.com}"
+    password: "${MAIL_PASSWORD:your-smtp-password}"
     properties:
       mail:
         smtp:
@@ -157,7 +157,7 @@ server:
 # JWT 配置
 jwt:
   # JWT 密钥（生产环境请使用更复杂的密钥）
-  secret: my-secret-key-for-jwt-token-generation
+  secret: "${JWT_SECRET:my-secret-key-for-jwt-token-generation}"
   # Access Token 过期时间（2小时，单位：毫秒）
   access-token-expiration: 7200000
   # Refresh Token 过期时间（7天，单位：毫秒）
@@ -170,7 +170,7 @@ jwt:
 # 应用自定义配置
 app:
   # 前端 URL
-  frontend-url: http://localhost:3000
+  frontend-url: "${FRONTEND_URL:http://localhost:3000}"
   # 验证码配置
   captcha:
     # 验证码长度
@@ -204,21 +204,21 @@ app:
 steam:
   # Steam Web API Key
   # 申请地址：https://steamcommunity.com/dev/apikey
-  api-key: 782D49AFE6671DE7F9E5FB348BECBEA8
+  api-key: "${STEAM_API_KEY:}"
   bot:
     enabled: false
-    api-key: 782D49AFE6671DE7F9E5FB348BECBEA8
-    steam-id: ""
-    poll-interval-millis: 60000
-    batch-size: 20
+    api-key: "${STEAM_BOT_API_KEY:${STEAM_API_KEY:}}"
+    steam-id: "${STEAM_BOT_STEAM_ID:}"
+    poll-interval-millis: "${STEAM_BOT_POLL_INTERVAL_MILLIS:60000}"
+    batch-size: "${STEAM_BOT_BATCH_SIZE:20}"
   # 应用域名，用于 Steam OpenID 回调
   realm: http://localhost:8080
   # 代理配置（如果在无法直接访问 Steam 的地区，请开启代理）
   proxy:
-    enabled: true
-    host: 127.0.0.1
-    port: 7897
-    type: HTTP # HTTP 或 SOCKS
+    enabled: "${STEAM_PROXY_ENABLED:true}"
+    host: "${STEAM_PROXY_HOST:127.0.0.1}"
+    port: "${STEAM_PROXY_PORT:7897}"
+    type: "${STEAM_PROXY_TYPE:HTTP}" # HTTP 或 SOCKS
   market-sync:
     page-size: 10
     max-pages-per-run: 200
@@ -231,7 +231,7 @@ steam:
     auto-retry-budget-minutes: 30
     page-delay-millis: 5000
   cookie:
-    steam-login-secure: ""
+    steam-login-secure: "${STEAM_LOGIN_SECURE:}"
 
 # 分页插件配置
 pagehelper:
